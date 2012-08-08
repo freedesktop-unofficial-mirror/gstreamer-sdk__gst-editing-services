@@ -27,7 +27,6 @@
 #include <glib.h>
 #include <ges/ges.h>
 #include <gst/pbutils/encoding-profile.h>
-#include <regex.h>
 
 /* GLOBAL VARIABLE */
 static guint repeat = 0;
@@ -90,17 +89,17 @@ check_path (char *path)
 static gboolean
 check_time (char *time)
 {
-  static regex_t re;
+  static GRegex *regex;
+  GMatchInfo *match_info;
   static gboolean compiled = FALSE;
+
 
   if (!compiled) {
     compiled = TRUE;
-    regcomp (&re, "^[0-9]+(.[0-9]+)?$", REG_EXTENDED | REG_NOSUB);
+    regex = g_regex_new ("^[0-9]+(.[0-9]+)?$", 0, 0, NULL);
   }
 
-  if (!regexec (&re, time, (size_t) 0, NULL, 0))
-    return TRUE;
-  return FALSE;
+  return g_regex_match (regex, time, 0, NULL);
 }
 
 static guint64
