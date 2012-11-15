@@ -42,8 +42,7 @@
 
 struct _GESTimelineStandardTransitionPrivate
 {
-  /* Dummy variable */
-  void *nothing;
+  GSList *track_video_transitions;
 };
 
 enum
@@ -56,32 +55,28 @@ G_DEFINE_TYPE (GESTimelineStandardTransition, ges_timeline_standard_transition,
 
 static GESTrackObject *ges_tl_transition_create_track_object (GESTimelineObject
     * self, GESTrack * track);
+static void
+ges_timeline_standard_transition_track_object_added (GESTimelineObject * obj,
+    GESTrackObject * tckobj);
+static void
+ges_timeline_standard_transition_track_object_released (GESTimelineObject * obj,
+    GESTrackObject * tckobj);
 
 static void
 ges_timeline_standard_transition_update_vtype_internal (GESTimelineObject *
     self, GESVideoStandardTransitionType value)
 {
-  GList *tmp, *trackobjects;
+  GSList *tmp;
   GESTimelineStandardTransition *trself =
-      (GESTimelineStandardTransition *) self;
+      GES_TIMELINE_STANDARD_TRANSITION (self);
 
-  /* FIXME : We need a much less crack way to find the trackobject to change */
-  trackobjects = ges_timeline_object_get_track_objects (self);
-  for (tmp = trackobjects; tmp; tmp = tmp->next) {
-    GESTrackVideoTransition *obj;
-    if (GES_IS_TRACK_VIDEO_TRANSITION (tmp->data)) {
-      obj = (GESTrackVideoTransition *) tmp->data;
-      if (!ges_track_video_transition_set_transition_type (obj, value))
-        goto beach;
-    }
+  for (tmp = trself->priv->track_video_transitions; tmp; tmp = tmp->next) {
+    if (!ges_track_video_transition_set_transition_type
+        (GES_TRACK_VIDEO_TRANSITION (tmp->data), value))
+      return;
   }
 
   trself->vtype = value;
-
-beach:
-  g_list_foreach (trackobjects, (GFunc) g_object_unref, NULL);
-  g_list_free (trackobjects);
-  return;
 }
 
 static void
@@ -143,6 +138,10 @@ ges_timeline_standard_transition_class_init (GESTimelineStandardTransitionClass
 
   timobj_class->create_track_object = ges_tl_transition_create_track_object;
   timobj_class->need_fill_track = FALSE;
+  timobj_class->track_object_added =
+      ges_timeline_standard_transition_track_object_added;
+  timobj_class->track_object_released =
+      ges_timeline_standard_transition_track_object_released;
 }
 
 static void
@@ -156,30 +155,73 @@ ges_timeline_standard_transition_init (GESTimelineStandardTransition * self)
   self->vtype = GES_VIDEO_STANDARD_TRANSITION_TYPE_NONE;
 }
 
+static void
+ges_timeline_standard_transition_track_object_released (GESTimelineObject * obj,
+    GESTrackObject * tckobj)
+{
+  GESTimelineStandardTransitionPrivate *priv =
+      GES_TIMELINE_STANDARD_TRANSITION (obj)->priv;
+
+  /* If this is called, we should be sure the tckobj exists */
+  if (GES_IS_TRACK_VIDEO_TRANSITION (tckobj)) {
+    GST_DEBUG ("GESTrackVideoTransition %p released from %p", tckobj, obj);
+    priv->track_video_transitions =
+        g_slist_remove (priv->track_video_transitions, tckobj);
+    g_object_unref (tckobj);
+  }
+}
+
+static void
+ges_timeline_standard_transition_track_object_added (GESTimelineObject * obj,
+    GESTrackObject * tckobj)
+{
+  GESTimelineStandardTransitionPrivate *priv =
+      GES_TIMELINE_STANDARD_TRANSITION (obj)->priv;
+
+  if (GES_IS_TRACK_VIDEO_TRANSITION (tckobj)) {
+    GST_DEBUG ("GESTrackVideoTransition %p added to %p", tckobj, obj);
+    priv->track_video_transitions =
+        g_slist_prepend (priv->track_video_transitions, g_object_ref (tckobj));
+  }
+}
+
 static GESTrackObject *
 ges_tl_transition_create_track_object (GESTimelineObject * obj,
     GESTrack * track)
 {
   GESTimelineStandardTransition *transition =
       (GESTimelineStandardTransition *) obj;
-  GESTrackObject *res;
+  GESTrackObject *res = NULL;
+  GESTrackType supportedformats;
 
   GST_DEBUG ("Creating a GESTrackTransition");
 
+  supportedformats = ges_timeline_object_get_supported_formats (obj);
   if (track->type == GES_TRACK_TYPE_VIDEO) {
-    res = GES_TRACK_OBJECT (ges_track_video_transition_new ());
-    ges_track_video_transition_set_transition_type ((GESTrackVideoTransition *)
-        res, transition->vtype);
-  }
+    if (supportedformats == GES_TRACK_TYPE_UNKNOWN ||
+        supportedformats & GES_TRACK_TYPE_VIDEO) {
+      GESTrackVideoTransition *trans;
 
-  else if (track->type == GES_TRACK_TYPE_AUDIO) {
-    res = GES_TRACK_OBJECT (ges_track_audio_transition_new ());
-  }
+      trans = ges_track_video_transition_new ();
+      ges_track_video_transition_set_transition_type (trans, transition->vtype);
 
-  else {
+      res = GES_TRACK_OBJECT (trans);
+    } else {
+      GST_DEBUG ("Not creating transition as video track not on"
+          " supportedformats");
+    }
+
+  } else if (track->type == GES_TRACK_TYPE_AUDIO) {
+
+    if (supportedformats == GES_TRACK_TYPE_UNKNOWN ||
+        supportedformats & GES_TRACK_TYPE_AUDIO)
+      res = GES_TRACK_OBJECT (ges_track_audio_transition_new ());
+    else
+      GST_DEBUG ("Not creating transition as audio track"
+          " not on supportedformats");
+
+  } else
     GST_WARNING ("Transitions don't handle this track type");
-    return NULL;
-  }
 
   return res;
 }

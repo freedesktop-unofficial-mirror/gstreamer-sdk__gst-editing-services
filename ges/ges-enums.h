@@ -213,14 +213,18 @@ GType ges_video_standard_transition_type_get_type (void);
  * GESTextVAlign:
  * @GES_TEXT_VALIGN_BASELINE: draw text on the baseline
  * @GES_TEXT_VALIGN_BOTTOM: draw text on the bottom
- * @GES_TEXT_VALIGN_TOP: draw test on top
+ * @GES_TEXT_VALIGN_TOP: draw text on top
+ * @GES_TEXT_VALIGN_POSITION: draw text on ypos position
+ * @GES_TEXT_VALIGN_CENTER: draw text on the center
  *
  * Vertical alignment of the text.
  */
 typedef enum {
     GES_TEXT_VALIGN_BASELINE,
     GES_TEXT_VALIGN_BOTTOM,
-    GES_TEXT_VALIGN_TOP
+    GES_TEXT_VALIGN_TOP,
+    GES_TEXT_VALIGN_POSITION,
+    GES_TEXT_VALIGN_CENTER
 } GESTextVAlign;
 
 #define DEFAULT_VALIGNMENT GES_TEXT_VALIGN_BASELINE
@@ -235,13 +239,15 @@ GType ges_text_valign_get_type (void);
  * @GES_TEXT_HALIGN_LEFT: align text left
  * @GES_TEXT_HALIGN_CENTER: align text center
  * @GES_TEXT_HALIGN_RIGHT: align text right
+ * @GES_TEXT_HALIGN_POSITION: align text on xpos position
  *
  * Horizontal alignment of the text.
  */
 typedef enum {
-    GES_TEXT_HALIGN_LEFT,
-    GES_TEXT_HALIGN_CENTER,
-    GES_TEXT_HALIGN_RIGHT
+    GES_TEXT_HALIGN_LEFT = 0,
+    GES_TEXT_HALIGN_CENTER = 1,
+    GES_TEXT_HALIGN_RIGHT = 2,
+    GES_TEXT_HALIGN_POSITION = 4
 } GESTextHAlign;
 
 #define DEFAULT_HALIGNMENT GES_TEXT_HALIGN_CENTER
@@ -293,6 +299,93 @@ typedef enum {
   ges_video_test_pattern_get_type()
 
 GType ges_video_test_pattern_get_type (void);
+
+/**
+ * GESPipelineFlags:
+ * @TIMELINE_MODE_PREVIEW_AUDIO: output audio to the soundcard
+ * @TIMELINE_MODE_PREVIEW_VIDEO: output video to the screen
+ * @TIMELINE_MODE_PREVIEW: output audio/video to soundcard/screen (default)
+ * @TIMELINE_MODE_RENDER: render timeline (forces decoding)
+ * @TIMELINE_MODE_SMART_RENDER: render timeline (tries to avoid decoding/reencoding)
+ *
+ * The various modes the #GESTimelinePipeline can be configured to.
+ */
+typedef enum {
+  TIMELINE_MODE_PREVIEW_AUDIO	= 1 << 0,
+  TIMELINE_MODE_PREVIEW_VIDEO	= 1 << 1,
+  TIMELINE_MODE_PREVIEW		= TIMELINE_MODE_PREVIEW_AUDIO | TIMELINE_MODE_PREVIEW_VIDEO,
+  TIMELINE_MODE_RENDER		= 1 << 2,
+  TIMELINE_MODE_SMART_RENDER	= 1 << 3
+} GESPipelineFlags;
+
+#define GES_TYPE_PIPELINE_FLAGS\
+  ges_pipeline_flags_get_type()
+
+GType ges_pipeline_flags_get_type (void);
+
+/**
+ * GESEditMode:
+ * @GES_EDIT_MODE_NORMAL: The object is edited the normal way (default).
+ * @GES_EDIT_MODE_RIPPLE: The objects are edited in ripple mode.
+ *  The Ripple mode allows you to modify the beginning/end of a clip
+ *  and move the neighbours accordingly. This will change the overall
+ *  timeline duration. In the case of ripple end, the duration of the
+ *  clip being rippled can't be supperior to it max-duration - inpoint
+ *  and if it would be the case, nothing wil happen.
+ * @GES_EDIT_MODE_ROLL: The object is edited in roll mode.
+ *  The Roll mode allows you to modify the position of an editing point
+ *  between two clips without modifying the inpoint of the first clip
+ *  nor the out-point of the second clip. This will not change the
+ *  overall timeline duration. In the case of ripple end, the duration of the
+ *  clip being rolled can't be supperior to it max-duration - inpoint and if
+ *  it would be the case, nothing wil happen.
+ * @GES_EDIT_MODE_TRIM: The object is edited in trim mode.
+ *  The Trim mode allows you to modify the in-point/out-point of a clip without
+ *  modifying it's duration or position in the timeline. A clip being trim
+ * @GES_EDIT_MODE_SLIDE: The object is edited in slide mode.
+ *  The Slide mode allows you to modify the position of a clip in a
+ *  timeline without modifying it's duration or it's in-point, but will
+ *  modify the out-point of the previous clip and in-point of the
+ *  following clip so as not to modify the overall timeline duration.
+ *  (not implemented yet)
+ *
+ * The various edition modes a clip can be edited with.
+ *
+ *
+ * You can also find more explanation about the behaviour of those modes at:
+ * <ulink url="http://pitivi.org/manual/trimming.html"> trim, ripple and roll</ulink>
+ * and <ulink url="http://pitivi.org/manual/usingclips.html">clip management</ulink>.
+ */
+typedef enum {
+    GES_EDIT_MODE_NORMAL,
+    GES_EDIT_MODE_RIPPLE,
+    GES_EDIT_MODE_ROLL,
+    GES_EDIT_MODE_TRIM,
+    GES_EDIT_MODE_SLIDE
+} GESEditMode;
+
+#define GES_TYPE_EDIT_MODE ges_edit_mode_get_type()
+
+GType ges_edit_mode_get_type (void);
+
+/**
+ * GESEdge:
+ * @GES_EDGE_START: Represents the start of an object.
+ * @GES_EDGE_END: Represents the end of an object.
+ * @GES_EDGE_NONE: Represent the fact we are not workin with any edge of an
+ *   object.
+ *
+ * The edges of an object contain in a #GESTimeline or #GESTrack
+ */
+typedef enum {
+    GES_EDGE_START,
+    GES_EDGE_END,
+    GES_EDGE_NONE
+} GESEdge;
+
+#define GES_TYPE_EDGE ges_edge_get_type()
+
+GType ges_edge_get_type (void);
 
 G_END_DECLS
 

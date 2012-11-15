@@ -20,25 +20,34 @@
 #include <ges/ges.h>
 #include <gst/pbutils/encoding-profile.h>
 
-GstEncodingProfile *make_ogg_vorbis_profile (void);
+GstEncodingProfile *make_encoding_profile (gchar * audio, gchar * container);
 
 /* This example will take a series of files and create a audio-only timeline
  * containing the first second of each file and render it to the output uri 
  * using ogg/vorbis */
 
-/* make_ogg_vorbis_profile:
- * simple method creating a ogg/vorbis encoding profile. This is here in
+/* make_encoding_profile
+ * simple method creating an encoding profile. This is here in
  * order not to clutter the main function. */
 GstEncodingProfile *
-make_ogg_vorbis_profile (void)
+make_encoding_profile (gchar * audio, gchar * container)
 {
   GstEncodingContainerProfile *profile;
+  GstEncodingProfile *stream;
+  GstCaps *caps;
 
-  profile = gst_encoding_container_profile_new ((gchar *) "ges-test4", NULL,
-      gst_caps_new_simple ("application/ogg", NULL), NULL);
-  gst_encoding_container_profile_add_profile (profile, (GstEncodingProfile *)
-      gst_encoding_audio_profile_new (gst_caps_new_simple ("audio/x-vorbis",
-              NULL), NULL, NULL, 1));
+  caps = gst_caps_from_string (container);
+  profile =
+      gst_encoding_container_profile_new ((gchar *) "ges-test4", NULL, caps,
+      NULL);
+  gst_caps_unref (caps);
+
+  caps = gst_caps_from_string (audio);
+  stream = (GstEncodingProfile *)
+      gst_encoding_audio_profile_new (caps, NULL, NULL, 0);
+  gst_encoding_container_profile_add_profile (profile, stream);
+  gst_caps_unref (caps);
+
   return (GstEncodingProfile *) profile;
 }
 
@@ -49,11 +58,31 @@ main (int argc, gchar ** argv)
   GESTimeline *timeline;
   GESTrack *tracka;
   GESTimelineLayer *layer;
-  GList *sources = NULL;
   GMainLoop *mainloop;
   GstEncodingProfile *profile;
+  gchar *container = (gchar *) "application/ogg";
+  gchar *audio = (gchar *) "audio/x-vorbis";
   gchar *output_uri;
   guint i;
+  GError *err = NULL;
+  GOptionEntry options[] = {
+    {"format", 'f', 0, G_OPTION_ARG_STRING, &container,
+        "Container format", "<GstCaps>"},
+    {"aformat", 'a', 0, G_OPTION_ARG_STRING, &audio,
+        "Audio format", "<GstCaps>"},
+    {NULL}
+  };
+  GOptionContext *ctx;
+
+  ctx = g_option_context_new ("- renders a sequence of audio files.");
+  g_option_context_add_main_entries (ctx, options, NULL);
+  g_option_context_add_group (ctx, gst_init_get_option_group ());
+
+  if (!g_option_context_parse (ctx, &argc, &argv, &err)) {
+    g_printerr ("Error initializing: %s\n", err->message);
+    g_option_context_free (ctx);
+    return -1;
+  }
 
   if (argc < 3) {
     g_print ("Usage: %s <output uri> <list of audio files>\n", argv[0]);
@@ -84,7 +113,7 @@ main (int argc, gchar ** argv)
     return -1;
 
   /* Here we've finished initializing our timeline, we're 
-   * ready to start using it... by solely working with the layer !*/
+   * ready to start using it... by solely working with the layer ! */
 
   for (i = 2; i < argc; i++) {
     gchar *uri = g_strdup_printf ("file://%s", argv[i]);
@@ -97,8 +126,6 @@ main (int argc, gchar ** argv)
     /* Since we're using a GESSimpleTimelineLayer, objects will be automatically
      * appended to the end of the layer */
     ges_timeline_layer_add_object (layer, (GESTimelineObject *) src);
-
-    sources = g_list_append (sources, src);
   }
 
   /* In order to view our timeline, let's grab a convenience pipeline to put
@@ -112,14 +139,18 @@ main (int argc, gchar ** argv)
 
   /* RENDER SETTINGS ! */
   /* We set our output URI and rendering setting on the pipeline */
-  output_uri = argv[1];
-  profile = make_ogg_vorbis_profile ();
+  if (gst_uri_is_valid (argv[1])) {
+    output_uri = g_strdup (argv[1]);
+  } else {
+    output_uri = g_strdup_printf ("file://%s", argv[1]);
+  }
+  profile = make_encoding_profile (audio, container);
   if (!ges_timeline_pipeline_set_render_settings (pipeline, output_uri,
           profile))
     return -1;
 
   /* We want the pipeline to render (without any preview) */
-  if (!ges_timeline_pipeline_set_mode (pipeline, TIMELINE_MODE_RENDER))
+  if (!ges_timeline_pipeline_set_mode (pipeline, TIMELINE_MODE_SMART_RENDER))
     return -1;
 
 
@@ -129,13 +160,13 @@ main (int argc, gchar ** argv)
    * We set the pipeline to playing ... */
   gst_element_set_state (GST_ELEMENT (pipeline), GST_STATE_PLAYING);
 
-  /* .. and we start a GMainLoop. GES **REQUIRES** a GMainLoop to be running in
+  /* ... and we start a GMainLoop. GES **REQUIRES** a GMainLoop to be running in
    * order to function properly ! */
   mainloop = g_main_loop_new (NULL, FALSE);
 
   /* Simple code to have the mainloop shutdown after 4s */
   /* FIXME : We should wait for EOS ! */
-  g_timeout_add_seconds (argc, (GSourceFunc) g_main_loop_quit, mainloop);
+  g_timeout_add_seconds (argc - 1, (GSourceFunc) g_main_loop_quit, mainloop);
   g_main_loop_run (mainloop);
 
   return 0;

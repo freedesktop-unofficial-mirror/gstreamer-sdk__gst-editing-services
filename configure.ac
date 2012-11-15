@@ -3,7 +3,7 @@ AC_PREREQ(2.52)
 dnl initialize autoconf
 dnl when going to/from release please set the nano (fourth number) right !
 dnl releases only do Wall, cvs and prerelease does Werror too
-AC_INIT(GStreamer Editing Services, 0.10.1,
+AC_INIT(GStreamer Editing Services, 0.10.1.1,
     http://bugzilla.gnome.org/enter_bug.cgi?product=GStreamer,
     gstreamer-editing-services)
 
@@ -50,8 +50,8 @@ AC_LIBTOOL_WIN32_DLL
 AM_PROG_LIBTOOL
 
 dnl *** required versions of GStreamer stuff ***
-GST_REQ=0.10.31.1
-GSTPB_REQ=0.10.31.1
+GST_REQ=0.10.34
+GSTPB_REQ=0.10.34
 
 dnl *** autotools stuff ****
 
@@ -60,6 +60,7 @@ AS_AUTOTOOLS_ALTERNATE
 
 dnl Add parameters for aclocal
 AC_SUBST(ACLOCAL_AMFLAGS, "-I m4 -I common/m4")
+AC_CONFIG_MACRO_DIR([m4])
 
 dnl *** check for arguments to configure ***
 
@@ -97,8 +98,6 @@ AC_PROG_CXX
 dnl determine if c++ is available on this system
 AC_CHECK_PROG(HAVE_CXX, $CXX, yes, no)
 
-AS_PROG_OBJC
-
 dnl check if the compiler supports '-c' and '-o' options
 AM_PROG_CC_C_O
 
@@ -116,6 +115,55 @@ AG_GST_DOCBOOK_CHECK
 GTK_DOC_CHECK([1.3])
 AS_PATH_PYTHON([2.1])
 AG_GST_PLUGIN_DOCS([1.3],[2.1])
+
+dnl check for python
+AM_PATH_PYTHON
+AC_MSG_CHECKING(for python >= 2.3)
+prog="
+import sys, string
+minver = (2,3,0,'final',0)
+if sys.version_info < minver:
+  sys.exit(1)
+sys.exit(0)"
+
+if $PYTHON -c "$prog" 1>&AC_FD_CC 2>&AC_FD_CC
+then
+  HAVE_PYTHON=yes
+  AC_MSG_RESULT(okay)
+else
+  HAVE_PYTHON=no
+  AC_MSG_RESULT(no python)
+fi
+
+AM_CHECK_PYTHON_HEADERS([HAVE_PYTHON_HEADERS=yes],[HAVE_PYTHON_HEADERS=no])
+
+dnl check for pygobject (optional, used in the bindings)
+PYGOBJECT_REQ=2.11.2
+PKG_CHECK_MODULES(PYGOBJECT, pygobject-2.0 >= $PYGOBJECT_REQ,
+  [HAVE_PYGOBJECT="yes"], [HAVE_PYGOBJECT="no"])
+AC_SUBST(PYGOBJECT_CFLAGS)
+
+dnl check for gst-python
+PYGST_REQ=0.10.21.1
+PKG_CHECK_MODULES(PYGST, gst-python-0.10 >= $PYGST_REQ,
+  [HAVE_PYGST="yes"], [HAVE_PYGST="no"])
+
+if test "x$HAVE_PYGST" = "xyes"; then
+  PYGST_DEFSDIR=`pkg-config gst-python-0.10 --variable=defsdir`
+fi
+AC_SUBST(PYGST_DEFSDIR, $PYGST_DEFSDIR)
+
+if test \
+    "x$HAVE_PYTHON" = "xyes" -a \
+    "x$HAVE_PYTHON_HEADERS" = "xyes" -a \
+    "x$HAVE_PYGOBJECT" = "xyes" -a \
+    "x$HAVE_PYGST" = "xyes"; then
+  HAVE_PYTHON_BINDINGS="yes"
+else
+  HAVE_PYTHON_BINDINGS="no"
+fi
+
+AM_CONDITIONAL(WITH_PYTHON, [test "x$HAVE_PYTHON_BINDINGS" = "xyes"])
 
 dnl *** checks for libraries ***
 
@@ -145,7 +193,11 @@ dnl *** checks for headers ***
 dnl *** checks for dependency libraries ***
 
 dnl GLib is required
-AG_GST_GLIB_CHECK([2.22])
+AG_GST_GLIB_CHECK([2.28])
+
+PKG_CHECK_MODULES(GIO, gio-2.0 >= 2.16, HAVE_GIO=yes, HAVE_GIO=no)
+AC_SUBST(GIO_CFLAGS)
+AC_SUBST(GIO_LIBS)
 
 dnl checks for gstreamer
 dnl uninstalled is selected preferentially -- see pkg-config(1)
@@ -192,6 +244,14 @@ GSTPB_PREFIX="`$PKG_CONFIG --variable=prefix gstreamer-plugins-base-$GST_MAJORMI
 AC_SUBST(GLIB_PREFIX)
 AC_SUBST(GST_PREFIX)
 AC_SUBST(GSTPB_PREFIX)
+
+dnl pitivi formatter needs libxml
+PKG_CHECK_MODULES(XML, libxml-2.0, HAVE_LIBXML="yes", HAVE_LIBXML="no")
+if test "x$HAVE_LIBXML" != "xyes"; then
+  AC_ERROR([libxml2 is required])
+fi
+AC_SUBST(XML_LIBS)
+AC_SUBST(XML_CFLAGS)
 
 dnl GTK is optional and only used in examples
 HAVE_GTK=no
@@ -301,6 +361,11 @@ common/m4/Makefile
 gst-editing-services.spec
 m4/Makefile
 ges/Makefile
+bindings/Makefile
+bindings/python/Makefile
+bindings/python/codegen/Makefile
+bindings/python/examples/Makefile
+bindings/python/testsuite/Makefile
 tests/Makefile
 tests/check/Makefile
 tests/examples/Makefile

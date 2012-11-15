@@ -4,6 +4,11 @@
 <FILE>ges-common</FILE>
 <TITLE>Initialization</TITLE>
 ges_init
+ges_version
+GES_VERSION_MAJOR
+GES_VERSION_MICRO
+GES_VERSION_MINOR
+GES_VERSION_NANO
 <SUBSECTION Standard>
 GES_PADDING
 </SECTION>
@@ -17,30 +22,40 @@ GES_PADDING
 <SECTION>
 <FILE>ges-enums</FILE>
 <TITLE>GES Enums</TITLE>
-GESVideoStandardTransitionType
 GESTrackType
+GESVideoStandardTransitionType
 GESTextHAlign
 DEFAULT_HALIGNMENT
 GESTextVAlign
 DEFAULT_VALIGNMENT
 GESVideoTestPattern
+GESPipelineFlags
+GESEdge
+GESEditMode
 <SUBSECTION Standard>
 GES_TYPE_TRACK_TYPE
 ges_track_type_get_type
+GES_VIDEO_STANDARD_TRANSITION_TYPE_TYPE
+ges_video_standard_transition_type_get_type
 GES_TEXT_HALIGN_TYPE
 ges_text_halign_get_type
 GES_TEXT_VALIGN_TYPE
 ges_text_valign_get_type
 GES_VIDEO_TEST_PATTERN_TYPE
 ges_video_test_pattern_get_type
-GES_VIDEO_STANDARD_TRANSITION_TYPE_TYPE
-ges_video_standard_transition_type_get_type
+GES_TYPE_PIPELINE_FLAGS
+ges_pipeline_flags_get_type
+GES_TYPE_EDGE
+ges_edge_get_type
+GES_TYPE_EDIT_MODE
+ges_edit_mode_get_type
 </SECTION>
 
 <SECTION>
 <FILE>ges-track</FILE>
 <TITLE>GESTrack</TITLE>
 GESTrack
+GESCreateElementForGapFunc
 ges_track_audio_raw_new
 ges_track_video_raw_new
 ges_track_new
@@ -48,6 +63,10 @@ ges_track_add_object
 ges_track_remove_object
 ges_track_set_caps
 ges_track_get_caps
+ges_track_enable_update
+ges_track_get_objects
+ges_track_is_updating
+ges_track_set_create_element_for_gap_func
 <SUBSECTION Standard>
 GESTrackClass
 GESTrackPrivate
@@ -68,6 +87,7 @@ GES_TYPE_TRACK
 GESTrackObject
 GESTrackObjectClass
 ges_track_object_set_duration
+ges_track_object_set_max_duration
 ges_track_object_set_inpoint
 ges_track_object_set_priority
 ges_track_object_set_start
@@ -78,6 +98,22 @@ ges_track_object_get_track
 ges_track_object_get_timeline_object
 ges_track_object_get_gnlobject
 ges_track_object_get_element
+ges_track_object_get_start
+ges_track_object_get_inpoint
+ges_track_object_get_duration
+ges_track_object_get_max_duration
+ges_track_object_get_priority
+ges_track_object_is_active
+ges_track_object_lookup_child
+ges_track_object_list_children_properties
+ges_track_object_set_child_property
+ges_track_object_set_child_property_valist
+ges_track_object_set_child_property_by_pspec
+ges_track_object_get_child_property
+ges_track_object_get_child_property_valist
+ges_track_object_get_child_property_by_pspec
+ges_track_object_edit
+ges_track_object_copy
 <SUBSECTION Standard>
 GES_TRACK_OBJECT_DURATION
 GES_TRACK_OBJECT_INPOINT
@@ -200,6 +236,10 @@ GESTrackVideoTransition
 ges_track_video_transition_new
 ges_track_video_transition_set_transition_type
 ges_track_video_transition_get_transition_type
+ges_track_video_transition_set_border
+ges_track_video_transition_get_border
+ges_track_video_transition_set_inverted
+ges_track_video_transition_is_inverted
 <SUBSECTION Standard>
 GESTrackVideoTransitionClass
 GESTrackVideoTransitionPrivate
@@ -220,15 +260,19 @@ ges_timeline_new
 ges_timeline_new_audio_video
 ges_timeline_new_from_uri
 ges_timeline_add_layer
+ges_timeline_append_layer
 ges_timeline_remove_layer
 ges_timeline_add_track
 ges_timeline_remove_track
 ges_timeline_load_from_uri
 ges_timeline_save_to_uri
+ges_timeline_enable_update
+ges_timeline_is_updating
 <SUBSECTION usage>
 ges_timeline_get_tracks
 ges_timeline_get_layers
 ges_timeline_get_track_for_pad
+ges_timeline_get_duration
 <SUBSECTION Standard>
 GESTimelinePrivate
 GESTimelineClass
@@ -253,6 +297,10 @@ ges_timeline_layer_remove_object
 ges_timeline_layer_set_priority
 ges_timeline_layer_get_priority
 ges_timeline_layer_get_objects
+ges_timeline_layer_get_timeline
+ges_timeline_layer_get_auto_transition
+ges_timeline_layer_set_auto_transition
+ges_timeline_layer_is_empty
 <SUBSECTION Standard>
 GESTimelineLayerPrivate
 ges_timeline_layer_set_timeline
@@ -280,6 +328,22 @@ ges_timeline_object_set_duration
 ges_timeline_object_get_layer
 ges_timeline_object_find_track_object
 ges_timeline_object_add_track_object
+ges_timeline_object_get_top_effects
+ges_timeline_object_get_top_effect_position
+ges_timeline_object_move_to_layer
+ges_timeline_object_set_top_effect_priority
+ges_timeline_object_set_supported_formats
+ges_timeline_object_get_supported_formats
+ges_timeline_object_split
+ges_timeline_object_edit
+ges_timeline_object_ripple
+ges_timeline_object_ripple_end
+ges_timeline_object_roll_start
+ges_timeline_object_roll_end
+ges_timeline_object_trim_start
+ges_timeline_object_get_max_duration
+ges_timeline_object_objects_set_locked
+ges_timeline_object_set_max_duration
 <SUBSECTION Standard>
 GES_TIMELINE_OBJECT_DURATION
 GES_TIMELINE_OBJECT_INPOINT
@@ -289,10 +353,13 @@ GES_TIMELINE_OBJECT_HEIGHT
 ges_timeline_object_create_track_objects
 ges_timeline_object_create_track_object
 ges_timeline_object_fill_track_object
+ges_timeline_object_is_moving_from_layer
 ges_timeline_object_release_track_object
 ges_timeline_object_get_track_objects
 ges_timeline_object_set_layer
+ges_timeline_object_set_moving_from_layer
 ges_timeline_object_set_priority
+ges_timeline_object_lock_track_objects
 GESTimelineObjectPrivate
 GES_IS_TIMELINE_OBJECT
 GES_IS_TIMELINE_OBJECT_CLASS
@@ -308,11 +375,14 @@ ges_timeline_object_get_type
 <FILE>ges-timeline-pipeline</FILE>
 <TITLE>GESTimelinePipeline</TITLE>
 GESTimelinePipeline
-GESPipelineFlags
 ges_timeline_pipeline_new
 ges_timeline_pipeline_add_timeline
 ges_timeline_pipeline_set_mode
 ges_timeline_pipeline_set_render_settings
+ges_timeline_pipeline_preview_get_audio_sink
+ges_timeline_pipeline_preview_get_video_sink
+ges_timeline_pipeline_preview_set_audio_sink
+ges_timeline_pipeline_preview_set_video_sink
 ges_timeline_pipeline_get_thumbnail_buffer
 ges_timeline_pipeline_get_thumbnail_rgb24
 ges_timeline_pipeline_save_thumbnail
@@ -421,6 +491,40 @@ GES_TIMELINE_TRANSITION_GET_CLASS
 </SECTION>
 
 <SECTION>
+<FILE>ges-timeline-effect</FILE>
+<TITLE>GESTimelineEffect</TITLE>
+GESTimelineEffect
+<SUBSECTION Standard>
+GESTimelineEffectClass
+GESTimelineEffectPrivate
+GES_TIMELINE_EFFECT
+GES_IS_TIMELINE_EFFECT
+GES_TYPE_TIMELINE_EFFECT
+ges_timeline_effect_get_type
+GES_TIMELINE_EFFECT_CLASS
+GES_IS_TIMELINE_EFFECT_CLASS
+GES_TIMELINE_EFFECT_GET_CLASS
+</SECTION>
+
+<SECTION>
+<FILE>ges-timeline-parse-launch-effect</FILE>
+<TITLE>GESTimelineParseLaunchEffect</TITLE>
+GESTimelineParseLaunchEffect
+ges_timeline_parse_launch_effect_new
+<SUBSECTION Standard>
+GESTimelineParseLaunchEffectClass
+GESTimelineParseLaunchEffectPrivate
+GES_TIMELINE_PARSE_LAUNCH_EFFECT_CLASS
+GES_TIMELINE_PARSE_LAUNCH_EFFECT
+GES_IS_TIMELINE_PARSE_LAUNCH_EFFECT
+GES_TYPE_TIMELINE_PARSE_LAUNCH_EFFECT
+ges_timeline_parse_launch_effect_get_type
+GES_TIMELINE_PARSE_LAUNCH_EFFECT_CLASS_
+GES_IS_TIMELINE_PARSE_LAUNCH_EFFECT_CLASS
+GES_TIMELINE_PARSE_LAUNCH_EFFECT_GET_CLASS
+</SECTION>
+
+<SECTION>
 <FILE>ges-timeline-standard-transition</FILE>
 <TITLE>GESTimelineStandardTransition</TITLE>
 GESTimelineStandardTransition
@@ -487,7 +591,13 @@ GESTimelineTestSourceClass
 ges_timeline_test_source_new
 ges_timeline_test_source_new_for_nick
 ges_timeline_test_source_get_vpattern
+ges_timeline_test_source_get_frequency
+ges_timeline_test_source_get_volume
+ges_timeline_test_source_is_muted
 ges_timeline_test_source_set_vpattern
+ges_timeline_test_source_set_frequency
+ges_timeline_test_source_set_mute
+ges_timeline_test_source_set_volume
 <SUBSECTION Standard>
 GESTimelineTestSourcePrivate
 ges_timeline_test_source_get_type
@@ -504,16 +614,22 @@ GES_TIMELINE_TEST_SOURCE_GET_CLASS
 <TITLE>GESTimelineTitleSource</TITLE>
 GESTimelineTitleSource
 ges_timeline_title_source_new
-ges_timeline_title_source_set_mute
 ges_timeline_title_source_set_text
 ges_timeline_title_source_set_font_desc
-ges_timeline_title_source_set_valignment
 ges_timeline_title_source_set_halignment
-ges_timeline_title_source_is_muted
+ges_timeline_title_source_set_valignment
+ges_timeline_title_source_set_mute
+ges_timeline_title_source_set_color
+ges_timeline_title_source_set_xpos
+ges_timeline_title_source_set_ypos
 ges_timeline_title_source_get_text
 ges_timeline_title_source_get_font_desc
 ges_timeline_title_source_get_valignment
 ges_timeline_title_source_get_halignment
+ges_timeline_title_source_is_muted
+ges_timeline_title_source_get_color
+ges_timeline_title_source_get_xpos
+ges_timeline_title_source_get_ypos
 <SUBSECTION Standard>
 GESTimelineTitleSourceClass
 GESTimelineTitleSourcePrivate
@@ -534,10 +650,16 @@ ges_timeline_text_overlay_set_text
 ges_timeline_text_overlay_set_font_desc
 ges_timeline_text_overlay_set_valign
 ges_timeline_text_overlay_set_halign
+ges_timeline_text_overlay_set_color
+ges_timeline_text_overlay_set_xpos
+ges_timeline_text_overlay_set_ypos
 ges_timeline_text_overlay_get_text
 ges_timeline_text_overlay_get_font_desc
 ges_timeline_text_overlay_get_valignment
 ges_timeline_text_overlay_get_halignment
+ges_timeline_text_overlay_get_color
+ges_timeline_text_overlay_get_xpos
+ges_timeline_text_overlay_get_ypos
 <SUBSECTION Standard>
 GESTimelineTextOverlayClass
 GESTimelineTextOverlayPrivate
@@ -555,15 +677,8 @@ GES_TYPE_TIMELINE_TEXT_OVERLAY
 <TITLE>GESTrackVideoTestSource</TITLE>
 GESTrackVideoTestSource
 ges_track_video_test_source_new
-ges_timeline_test_source_new_for_nick
 ges_track_video_test_source_set_pattern
-ges_timeline_test_source_set_mute
-ges_timeline_test_source_set_frequency
-ges_timeline_test_source_set_volume
 ges_track_video_test_source_get_pattern
-ges_timeline_test_source_is_muted
-ges_timeline_test_source_get_frequency
-ges_timeline_test_source_get_volume
 <SUBSECTION Standard>
 GESTrackVideoTestSourceClass
 GESTrackVideoTestSourcePrivate
@@ -606,10 +721,16 @@ ges_track_title_source_set_text
 ges_track_title_source_set_font_desc
 ges_track_title_source_set_halignment
 ges_track_title_source_set_valignment
+ges_track_title_source_set_color
+ges_track_title_source_set_xpos
+ges_track_title_source_set_ypos
+ges_track_title_source_get_text
 ges_track_title_source_get_font_desc
 ges_track_title_source_get_halignment
-ges_track_title_source_get_text
 ges_track_title_source_get_valignment
+ges_track_title_source_get_color
+ges_track_title_source_get_xpos
+ges_track_title_source_get_ypos
 <SUBSECTION Standard>
 GESTrackTitleSourceClass
 GESTrackTitleSourcePrivate
@@ -628,14 +749,20 @@ GES_IS_TRACK_TITLE_SOURCE_CLASS
 <TITLE>GESTrackTextOverlay</TITLE>
 GESTrackTextOverlay
 ges_track_text_overlay_new
+ges_track_text_overlay_set_text
 ges_track_text_overlay_set_font_desc
 ges_track_text_overlay_set_halignment
-ges_track_text_overlay_set_text
 ges_track_text_overlay_set_valignment
+ges_track_text_overlay_set_color
+ges_track_text_overlay_set_xpos
+ges_track_text_overlay_set_ypos
+ges_track_text_overlay_get_text
 ges_track_text_overlay_get_font_desc
 ges_track_text_overlay_get_halignment
-ges_track_text_overlay_get_text
 ges_track_text_overlay_get_valignment
+ges_track_text_overlay_get_color
+ges_track_text_overlay_get_xpos
+ges_track_text_overlay_get_ypos
 <SUBSECTION Standard>
 GESTrackTextOverlayClass
 GESTrackTextOverlayPrivate
@@ -655,22 +782,15 @@ GESFormatter
 GESFormatterClass
 GESFormatterLoadFromURIMethod
 GESFormatterSaveToURIMethod
+GESFormatterSourceMovedMethod
+GESFormatterLoadedMethod
 ges_default_formatter_new
 ges_formatter_load_from_uri
 ges_formatter_save_to_uri
 ges_formatter_new_for_uri
 ges_formatter_can_load_uri
 ges_formatter_can_save_uri
-<SUBSECTION Standard>
-ges_formatter_get_type
-GES_FORMATTER
-GES_FORMATTER_CLASS
-GES_FORMATTER_GET_CLASS
-GES_IS_FORMATTER
-GES_IS_FORMATTER_CLASS
-GES_TYPE_FORMATTER
-<SUBSECTION Private>
-GESFormatterPrivate
+ges_formatter_update_source_uri
 ges_formatter_load
 ges_formatter_save
 ges_formatter_set_data
@@ -680,6 +800,18 @@ GESFormatterCanLoadURIMethod
 GESFormatterCanSaveURIMethod
 GESFormatterLoadMethod
 GESFormatterSaveMethod
+<SUBSECTION>
+ges_formatter_emit_loaded
+<SUBSECTION Standard>
+GES_FORMATTER
+GES_FORMATTER_CLASS
+GES_FORMATTER_GET_CLASS
+GES_IS_FORMATTER
+GES_IS_FORMATTER_CLASS
+GES_TYPE_FORMATTER
+<SUBSECTION Private>
+ges_formatter_get_type
+GESFormatterPrivate
 </SECTION>
 
 <SECTION>
@@ -696,4 +828,57 @@ GES_KEYFILE_FORMATTER_CLASS
 GES_KEYFILE_FORMATTER_GET_CLASS
 GES_TYPE_KEYFILE_FORMATTER
 ges_keyfile_formatter_get_type
+</SECTION>
+
+<SECTION>
+<FILE>ges-pitivi-formatter</FILE>
+<TITLE>GESPitiviFormatter</TITLE>
+GESPitiviFormatter
+ges_pitivi_formatter_new
+ges_pitivi_formatter_set_sources
+ges_pitivi_formatter_get_sources
+<SUBSECTION Standard>
+GESPitiviFormatterClass
+GESPitiviFormatterPrivate
+GES_TYPE_PITIVI_FORMATTER
+GES_IS_PITIVI_FORMATTER
+GES_IS_PITIVI_FORMATTER_CLASS
+GES_PITIVI_FORMATTER
+GES_PITIVI_FORMATTER_CLASS
+GES_PITIVI_FORMATTER_GET_CLASS
+GES_TYPE_PITIVIFORMATTER
+ges_pitivi_formatter_get_type
+</SECTION>
+
+<SECTION>
+<FILE>ges-track-effect</FILE>
+<TITLE>GESTrackEffect</TITLE>
+GESTrackEffect
+<SUBSECTION Standard>
+GESTrackEffectClass
+GESTrackEffectPrivate
+GES_IS_TRACK_EFFECT
+GES_IS_TRACK_EFFECT_CLASS
+GES_TRACK_EFFECT
+GES_TRACK_EFFECT_CLASS
+GES_TRACK_EFFECT_GET_CLASS
+GES_TYPE_TRACK_EFFECT
+ges_track_effect_get_type
+</SECTION>
+
+<SECTION>
+<FILE>ges-track-parse-launch-effect</FILE>
+<TITLE>GESTrackParseLaunchEffect</TITLE>
+GESTrackParseLaunchEffect
+ges_track_parse_launch_effect_new
+<SUBSECTION Standard>
+GESTrackParseLaunchEffectClass
+GESTrackParseLaunchEffectPrivate
+GES_IS_TRACK_PARSE_LAUNCH_EFFECT
+GES_IS_TRACK_PARSE_LAUNCH_EFFECT_CLASS
+GES_TRACK_PARSE_LAUNCH_EFFECT
+GES_TRACK_PARSE_LAUNCH_EFFECT_CLASS
+GES_TRACK_PARSE_LAUNCH_EFFECT_GET_CLASS
+GES_TYPE_TRACK_PARSE_LAUNCH_EFFECT
+ges_track_parse_launch_effect_get_type
 </SECTION>

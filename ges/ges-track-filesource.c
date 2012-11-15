@@ -34,8 +34,7 @@ G_DEFINE_TYPE (GESTrackFileSource, ges_track_filesource, GES_TYPE_TRACK_SOURCE);
 
 struct _GESTrackFileSourcePrivate
 {
-  /*  Dummy variable */
-  void *nothing;
+  void *dummy;
 };
 
 enum

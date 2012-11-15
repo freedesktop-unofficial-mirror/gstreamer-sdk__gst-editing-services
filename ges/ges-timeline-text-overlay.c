@@ -46,6 +46,9 @@ struct _GESTimelineTextOverlayPrivate
   gchar *font_desc;
   GESTextHAlign halign;
   GESTextVAlign valign;
+  guint32 color;
+  gdouble xpos;
+  gdouble ypos;
 };
 
 enum
@@ -55,6 +58,9 @@ enum
   PROP_FONT_DESC,
   PROP_HALIGNMENT,
   PROP_VALIGNMENT,
+  PROP_COLOR,
+  PROP_XPOS,
+  PROP_YPOS,
 };
 
 static GESTrackObject
@@ -81,6 +87,15 @@ ges_timeline_text_overlay_get_property (GObject * object, guint property_id,
     case PROP_VALIGNMENT:
       g_value_set_enum (value, priv->valign);
       break;
+    case PROP_COLOR:
+      g_value_set_uint (value, priv->color);
+      break;
+    case PROP_XPOS:
+      g_value_set_double (value, priv->xpos);
+      break;
+    case PROP_YPOS:
+      g_value_set_double (value, priv->ypos);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
   }
@@ -104,6 +119,15 @@ ges_timeline_text_overlay_set_property (GObject * object, guint property_id,
       break;
     case PROP_VALIGNMENT:
       ges_timeline_text_overlay_set_valign (tfs, g_value_get_enum (value));
+      break;
+    case PROP_COLOR:
+      ges_timeline_text_overlay_set_color (tfs, g_value_get_uint (value));
+      break;
+    case PROP_XPOS:
+      ges_timeline_text_overlay_set_xpos (tfs, g_value_get_double (value));
+      break;
+    case PROP_YPOS:
+      ges_timeline_text_overlay_set_ypos (tfs, g_value_get_double (value));
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
@@ -183,6 +207,36 @@ ges_timeline_text_overlay_class_init (GESTimelineTextOverlayClass * klass)
   timobj_class->create_track_object =
       ges_timeline_text_overlay_create_track_object;
   timobj_class->need_fill_track = FALSE;
+
+  /**
+   * GESTimelineTextOverlay:color
+   *
+   * The color of the text
+   */
+
+  g_object_class_install_property (object_class, PROP_COLOR,
+      g_param_spec_uint ("color", "Color", "The color of the text",
+          0, G_MAXUINT32, G_MAXUINT32, G_PARAM_READWRITE | G_PARAM_CONSTRUCT));
+
+  /**
+   * GESTimelineTextOverlay:xpos
+   *
+   * The horizontal position of the text
+   */
+
+  g_object_class_install_property (object_class, PROP_XPOS,
+      g_param_spec_double ("xpos", "Xpos", "The horizontal position",
+          0, 1, 0.5, G_PARAM_READWRITE | G_PARAM_CONSTRUCT));
+
+  /**
+   * GESTimelineTextOverlay:ypos
+   *
+   * The vertical position of the text
+   */
+
+  g_object_class_install_property (object_class, PROP_YPOS,
+      g_param_spec_double ("ypos", "Ypos", "The vertical position",
+          0, 1, 0.5, G_PARAM_READWRITE | G_PARAM_CONSTRUCT));
 }
 
 static void
@@ -197,6 +251,9 @@ ges_timeline_text_overlay_init (GESTimelineTextOverlay * self)
   self->priv->font_desc = NULL;
   self->priv->halign = DEFAULT_PROP_HALIGNMENT;
   self->priv->valign = DEFAULT_PROP_VALIGNMENT;
+  self->priv->color = G_MAXUINT32;
+  self->priv->xpos = 0.5;
+  self->priv->ypos = 0.5;
 }
 
 /**
@@ -338,6 +395,105 @@ ges_timeline_text_overlay_set_valign (GESTimelineTextOverlay * self,
 }
 
 /**
+ * ges_timeline_text_overlay_set_color:
+ * @self: the #GESTimelineTextOverlay* to set
+ * @color: The color @self is being set to
+ *
+ * Sets the color of the text.
+ *
+ * Since: 0.10.2
+ */
+void
+ges_timeline_text_overlay_set_color (GESTimelineTextOverlay * self,
+    guint32 color)
+{
+  GList *tmp, *trackobjects;
+  GESTimelineObject *object = (GESTimelineObject *) self;
+
+  GST_DEBUG ("self:%p, color:%d", self, color);
+
+  self->priv->color = color;
+
+  trackobjects = ges_timeline_object_get_track_objects (object);
+  for (tmp = trackobjects; tmp; tmp = tmp->next) {
+    GESTrackObject *trackobject = (GESTrackObject *) tmp->data;
+
+    if (ges_track_object_get_track (trackobject)->type == GES_TRACK_TYPE_VIDEO)
+      ges_track_text_overlay_set_color (GES_TRACK_TEXT_OVERLAY
+          (trackobject), self->priv->color);
+
+    g_object_unref (GES_TRACK_OBJECT (tmp->data));
+  }
+  g_list_free (trackobjects);
+}
+
+/**
+ * ges_timeline_text_overlay_set_xpos:
+ * @self: the #GESTimelineTextOverlay* to set
+ * @position: The horizontal position @self is being set to
+ *
+ * Sets the horizontal position of the text.
+ *
+ * Since: 0.10.2
+ */
+void
+ges_timeline_text_overlay_set_xpos (GESTimelineTextOverlay * self,
+    gdouble position)
+{
+  GList *tmp, *trackobjects;
+  GESTimelineObject *object = (GESTimelineObject *) self;
+
+  GST_DEBUG ("self:%p, xpos:%f", self, position);
+
+  self->priv->xpos = position;
+
+  trackobjects = ges_timeline_object_get_track_objects (object);
+  for (tmp = trackobjects; tmp; tmp = tmp->next) {
+    GESTrackObject *trackobject = (GESTrackObject *) tmp->data;
+
+    if (ges_track_object_get_track (trackobject)->type == GES_TRACK_TYPE_VIDEO)
+      ges_track_text_overlay_set_xpos (GES_TRACK_TEXT_OVERLAY
+          (trackobject), self->priv->xpos);
+
+    g_object_unref (GES_TRACK_OBJECT (tmp->data));
+  }
+  g_list_free (trackobjects);
+}
+
+/**
+ * ges_timeline_text_overlay_set_ypos:
+ * @self: the #GESTimelineTextOverlay* to set
+ * @position: The vertical position @self is being set to
+ *
+ * Sets the vertical position of the text.
+ *
+ * Since: 0.10.2
+ */
+void
+ges_timeline_text_overlay_set_ypos (GESTimelineTextOverlay * self,
+    gdouble position)
+{
+  GList *tmp, *trackobjects;
+  GESTimelineObject *object = (GESTimelineObject *) self;
+
+  GST_DEBUG ("self:%p, ypos:%f", self, position);
+
+  self->priv->ypos = position;
+
+  trackobjects = ges_timeline_object_get_track_objects (object);
+  for (tmp = trackobjects; tmp; tmp = tmp->next) {
+    GESTrackObject *trackobject = (GESTrackObject *) tmp->data;
+
+    if (ges_track_object_get_track (trackobject)->type == GES_TRACK_TYPE_VIDEO)
+      ges_track_text_overlay_set_ypos (GES_TRACK_TEXT_OVERLAY
+          (trackobject), self->priv->ypos);
+
+    g_object_unref (GES_TRACK_OBJECT (tmp->data));
+  }
+  g_list_free (trackobjects);
+}
+
+/**
  * ges_timeline_text_overlay_get_text:
  * @self: a #GESTimelineTextOverlay
  *
@@ -394,6 +550,57 @@ ges_timeline_text_overlay_get_valignment (GESTimelineTextOverlay * self)
   return self->priv->valign;
 }
 
+/**
+ * ges_timeline_text_overlay_get_color:
+ * @self: a #GESTimelineTextOverlay
+ *
+ * Get the color used by @source.
+ *
+ * Returns: The color used by @source.
+ *
+ * Since: 0.10.2
+ */
+
+const guint32
+ges_timeline_text_overlay_get_color (GESTimelineTextOverlay * self)
+{
+  return self->priv->color;
+}
+
+/**
+ * ges_timeline_text_overlay_get_xpos:
+ * @self: a #GESTimelineTextOverlay
+ *
+ * Get the horizontal position used by @source.
+ *
+ * Returns: The horizontal position used by @source.
+ *
+ * Since: 0.10.2
+ */
+
+const gdouble
+ges_timeline_text_overlay_get_xpos (GESTimelineTextOverlay * self)
+{
+  return self->priv->xpos;
+}
+
+/**
+ * ges_timeline_text_overlay_get_ypos:
+ * @self: a #GESTimelineTextOverlay
+ *
+ * Get the vertical position used by @source.
+ *
+ * Returns: The vertical position used by @source.
+ *
+ * Since: 0.10.2
+ */
+
+const gdouble
+ges_timeline_text_overlay_get_ypos (GESTimelineTextOverlay * self)
+{
+  return self->priv->ypos;
+}
+
 static GESTrackObject *
 ges_timeline_text_overlay_create_track_object (GESTimelineObject * obj,
     GESTrack * track)
@@ -414,6 +621,9 @@ ges_timeline_text_overlay_create_track_object (GESTimelineObject * obj,
         priv->halign);
     ges_track_text_overlay_set_valignment ((GESTrackTextOverlay *) res,
         priv->valign);
+    ges_track_text_overlay_set_color ((GESTrackTextOverlay *) res, priv->color);
+    ges_track_text_overlay_set_xpos ((GESTrackTextOverlay *) res, priv->xpos);
+    ges_track_text_overlay_set_ypos ((GESTrackTextOverlay *) res, priv->ypos);
   }
 
   return res;

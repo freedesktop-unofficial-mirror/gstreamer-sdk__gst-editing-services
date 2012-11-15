@@ -20,7 +20,6 @@
 
 #ifndef __GES_H__
 #define __GES_H__
-
 #include <glib.h>
 #include <gst/gst.h>
 
@@ -36,16 +35,22 @@
 #include <ges/ges-timeline-test-source.h>
 #include <ges/ges-timeline-title-source.h>
 #include <ges/ges-timeline-operation.h>
+#include <ges/ges-timeline-effect.h>
 #include <ges/ges-timeline-overlay.h>
 #include <ges/ges-timeline-text-overlay.h>
 #include <ges/ges-timeline-transition.h>
 #include <ges/ges-timeline-standard-transition.h>
+#include <ges/ges-timeline-parse-launch-effect.h>
+#include <ges/ges-custom-timeline-source.h>
+#include <ges/ges-timeline-effect.h>
+#include <ges/ges-timeline-file-source.h>
+#include <ges/ges-screenshot.h>
+
 #include <ges/ges-track.h>
 #include <ges/ges-track-object.h>
 #include <ges/ges-track-source.h>
+#include <ges/ges-track-operation.h>
 
-#include <ges/ges-custom-timeline-source.h>
-#include <ges/ges-timeline-file-source.h>
 #include <ges/ges-track-filesource.h>
 #include <ges/ges-track-image-source.h>
 #include <ges/ges-track-video-test-source.h>
@@ -55,15 +60,24 @@
 #include <ges/ges-track-transition.h>
 #include <ges/ges-track-video-transition.h>
 #include <ges/ges-track-audio-transition.h>
-
+#include <ges/ges-track-effect.h>
+#include <ges/ges-track-parse-launch-effect.h>
 #include <ges/ges-formatter.h>
 #include <ges/ges-keyfile-formatter.h>
-
+#include <ges/ges-pitivi-formatter.h>
 #include <ges/ges-utils.h>
 
 G_BEGIN_DECLS
 
-void ges_init (void);
+#define GES_VERSION_MAJOR (0)
+#define GES_VERSION_MINOR (10)
+#define GES_VERSION_MICRO (1)
+#define GES_VERSION_NANO (1)
+
+gboolean ges_init    (void);
+
+void     ges_version (guint * major, guint * minor, guint * micro,
+                      guint * nano);
 
 G_END_DECLS
 

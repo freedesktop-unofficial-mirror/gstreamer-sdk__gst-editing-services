@@ -44,6 +44,7 @@ typedef struct
   GstPad *srcpad;               /* Timeline source pad */
   GstPad *playsinkpad;
   GstPad *encodebinpad;
+  GstPad *blocked_pad;
 } OutputChain;
 
 G_DEFINE_TYPE (GESTimelinePipeline, ges_timeline_pipeline, GST_TYPE_PIPELINE);
@@ -139,17 +140,30 @@ ges_timeline_pipeline_init (GESTimelinePipeline * self)
       "avoid-reencoding", TRUE, NULL);
 
   if (G_UNLIKELY (self->priv->playsink == NULL))
-    GST_ERROR_OBJECT (self, "Can't create playsink instance !");
+    goto no_playsink;
   if (G_UNLIKELY (self->priv->encodebin == NULL))
-    GST_ERROR_OBJECT (self, "Can't create encodebin instance !");
-  return;
+    goto no_encodebin;
 
+  /* TODO : Remove this hack once we depend on gst-p-base 0.10.37 */
   /* HACK : Intercept events going through playsink */
   playsinkclass = GST_ELEMENT_GET_CLASS (self->priv->playsink);
   /* Replace playsink's GstBin::send_event with our own */
   playsinkclass->send_event = play_sink_multiple_seeks_send_event;
 
   ges_timeline_pipeline_set_mode (self, DEFAULT_TIMELINE_MODE);
+
+  return;
+
+no_playsink:
+  {
+    GST_ERROR_OBJECT (self, "Can't create playsink instance !");
+    return;
+  }
+no_encodebin:
+  {
+    GST_ERROR_OBJECT (self, "Can't create encodebin instance !");
+    return;
+  }
 }
 
 /**
@@ -301,7 +315,7 @@ get_output_chain_for_track (GESTimelinePipeline * self, GESTrack * track)
   return NULL;
 }
 
-/* Fetches a ocmpatible pad on the target element which isn't already
+/* Fetches a compatible pad on the target element which isn't already
  * linked */
 static GstPad *
 get_compatible_unlinked_pad (GstElement * element, GstPad * pad)
@@ -310,6 +324,9 @@ get_compatible_unlinked_pad (GstElement * element, GstPad * pad)
   GstIterator *pads;
   gboolean done = FALSE;
   GstCaps *srccaps;
+
+  if (G_UNLIKELY (pad == NULL))
+    goto no_pad;
 
   GST_DEBUG ("element : %s, pad %s:%s",
       GST_ELEMENT_NAME (element), GST_DEBUG_PAD_NAME (pad));
@@ -359,6 +376,19 @@ get_compatible_unlinked_pad (GstElement * element, GstPad * pad)
   gst_caps_unref (srccaps);
 
   return res;
+
+no_pad:
+  {
+    GST_ERROR ("No pad to check against");
+    return NULL;
+  }
+}
+
+static void
+pad_blocked (GstPad * pad, gboolean blocked, gpointer user_data)
+{
+  /* no nothing */
+  GST_DEBUG_OBJECT (pad, "blocked callback, blocked: %d", blocked);
 }
 
 static void
@@ -445,7 +475,9 @@ pad_added_cb (GstElement * timeline, GstPad * pad, GESTimelinePipeline * self)
       gst_object_unref (tmppad);
       goto error;
     }
-    gst_object_unref (tmppad);
+    chain->blocked_pad = tmppad;
+    GST_DEBUG ("blocking pad %" GST_PTR_FORMAT, tmppad);
+    gst_pad_set_blocked_async (tmppad, TRUE, pad_blocked, NULL);
 
     GST_DEBUG ("Reconfiguring playsink");
 
@@ -547,6 +579,13 @@ pad_removed_cb (GstElement * timeline, GstPad * pad, GESTimelinePipeline * self)
     gst_object_unref (chain->playsinkpad);
   }
 
+  if (chain->blocked_pad) {
+    GST_DEBUG ("unblocking pad %" GST_PTR_FORMAT, chain->blocked_pad);
+    gst_pad_set_blocked_async (chain->blocked_pad, FALSE, pad_blocked, NULL);
+    gst_object_unref (chain->blocked_pad);
+    chain->blocked_pad = NULL;
+  }
+
   /* Unlike/remove tee */
   peer = gst_element_get_static_pad (chain->tee, "sink");
   gst_pad_unlink (pad, peer);
@@ -558,6 +597,22 @@ pad_removed_cb (GstElement * timeline, GstPad * pad, GESTimelinePipeline * self)
   g_free (chain);
 
   GST_DEBUG ("done");
+}
+
+static void
+no_more_pads_cb (GstElement * timeline, GESTimelinePipeline * self)
+{
+  GList *tmp;
+
+  GST_DEBUG ("received no-more-pads");
+  for (tmp = self->priv->chains; tmp; tmp = g_list_next (tmp)) {
+    OutputChain *chain = (OutputChain *) tmp->data;
+
+    if (chain->blocked_pad) {
+      GST_DEBUG ("unblocking pad %" GST_PTR_FORMAT, chain->blocked_pad);
+      gst_pad_set_blocked_async (chain->blocked_pad, FALSE, pad_blocked, NULL);
+    }
+  }
 }
 
 /**
@@ -590,6 +645,8 @@ ges_timeline_pipeline_add_timeline (GESTimelinePipeline * pipeline,
   /* Connect to pipeline */
   g_signal_connect (timeline, "pad-added", (GCallback) pad_added_cb, pipeline);
   g_signal_connect (timeline, "pad-removed", (GCallback) pad_removed_cb,
+      pipeline);
+  g_signal_connect (timeline, "no-more-pads", (GCallback) no_more_pads_cb,
       pipeline);
 
   return TRUE;
@@ -857,6 +914,81 @@ ges_timeline_pipeline_get_thumbnail_rgb24 (GESTimelinePipeline * self,
   gst_caps_unref (caps);
   return ret;
 }
+
+/**
+ * ges_timeline_pipeline_preview_get_video_sink:
+ * @self: a #GESTimelinePipeline
+ *
+ * Obtains a pointer to playsink's video sink element that is used for
+ * displaying video when the #GESTimelinePipeline is in %TIMELINE_MODE_PREVIEW
+ *
+ * The caller is responsible for unreffing the returned element with
+ * #gst_object_unref.
+ *
+ * Returns: (transfer full): a pointer to the playsink video sink #GstElement
+ */
+GstElement *
+ges_timeline_pipeline_preview_get_video_sink (GESTimelinePipeline * self)
+{
+  GstElement *sink;
+
+  g_object_get (self->priv->playsink, "video-sink", &sink, NULL);
+
+  return sink;
+};
+
+/**
+ * ges_timeline_pipeline_preview_set_video_sink:
+ * @self: a #GESTimelinePipeline in %GST_STATE_NULL
+ * @sink: (transfer none): a video sink #GstElement
+ *
+ * Sets playsink's video sink element that is used for displaying video when
+ * the #GESTimelinePipeline is in %TIMELINE_MODE_PREVIEW
+ */
+void
+ges_timeline_pipeline_preview_set_video_sink (GESTimelinePipeline * self,
+    GstElement * sink)
+{
+  g_object_set (self->priv->playsink, "video-sink", sink, NULL);
+};
+
+/**
+ * ges_timeline_pipeline_preview_get_audio_sink:
+ * @self: a #GESTimelinePipeline
+ *
+ * Obtains a pointer to playsink's audio sink element that is used for
+ * displaying audio when the #GESTimelinePipeline is in %TIMELINE_MODE_PREVIEW
+ *
+ * The caller is responsible for unreffing the returned element with
+ * #gst_object_unref.
+ *
+ * Returns: (transfer full): a pointer to the playsink audio sink #GstElement
+ */
+GstElement *
+ges_timeline_pipeline_preview_get_audio_sink (GESTimelinePipeline * self)
+{
+  GstElement *sink;
+
+  g_object_get (self->priv->playsink, "audio-sink", &sink, NULL);
+
+  return sink;
+};
+
+/**
+ * ges_timeline_pipeline_preview_set_audio_sink:
+ * @self: a #GESTimelinePipeline in %GST_STATE_NULL
+ * @sink: (transfer none): a audio sink #GstElement
+ *
+ * Sets playsink's audio sink element that is used for displaying audio when
+ * the #GESTimelinePipeline is in %TIMELINE_MODE_PREVIEW
+ */
+void
+ges_timeline_pipeline_preview_set_audio_sink (GESTimelinePipeline * self,
+    GstElement * sink)
+{
+  g_object_set (self->priv->playsink, "audio-sink", sink, NULL);
+};
+
 
 static gboolean
 play_sink_multiple_seeks_send_event (GstElement * element, GstEvent * event)

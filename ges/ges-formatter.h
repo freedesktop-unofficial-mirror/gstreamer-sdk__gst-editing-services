@@ -55,12 +55,15 @@ struct _GESFormatter {
   /*< private >*/
   GESFormatterPrivate *priv;
 
+  /*< protected >*/
+  GESTimeline *timeline;
+
   /* Padding for API extension */
-  gpointer _ges_reserved[GES_PADDING];
+  gpointer _ges_reserved[GES_PADDING - 1];
 };
 
-typedef gboolean (*GESFormatterCanLoadURIMethod) (gchar * uri);
-typedef gboolean (*GESFormatterCanSaveURIMethod) (gchar * uri);
+typedef gboolean (*GESFormatterCanLoadURIMethod) (const gchar * uri);
+typedef gboolean (*GESFormatterCanSaveURIMethod) (const gchar * uri);
 
 /**
  * GESFormatterLoadFromURIMethod:
@@ -77,7 +80,7 @@ typedef gboolean (*GESFormatterCanSaveURIMethod) (gchar * uri);
  **/
 typedef gboolean (*GESFormatterLoadFromURIMethod) (GESFormatter *formatter,
 						     GESTimeline *timeline,
-						     gchar * uri);
+						     const gchar * uri);
 
 /**
  * GESFormatterSaveToURIMethod:
@@ -94,11 +97,39 @@ typedef gboolean (*GESFormatterLoadFromURIMethod) (GESFormatter *formatter,
  */
 typedef gboolean (*GESFormatterSaveToURIMethod) (GESFormatter *formatter,
 						   GESTimeline *timeline,
-						   gchar * uri);
+						   const gchar * uri);
 typedef gboolean (*GESFormatterSaveMethod) (GESFormatter * formatter,
 					      GESTimeline * timeline);
 typedef gboolean (*GESFormatterLoadMethod) (GESFormatter * formatter,
 					      GESTimeline * timeline);
+
+/**
+ * GESFormatterSourceMovedMethod:
+ * @formatter: a #GESFormatter
+ * @tfs: a #GESTimelineFileSource
+ * @new_uri: the new URI of @tfs
+ *
+ * Virtual method for changing the URI of a #GESTimelineFileSource that has been
+ * moved between the saving and the loading of the timeline.
+ *
+ * This virtual method is not 100% necessary to be implemented as it is an
+ * extra feature.
+ *
+ * Returns: %TRUE if the source URI could be modified properly, %FALSE otherwize.
+ */
+typedef gboolean (*GESFormatterSourceMovedMethod)        (GESFormatter *formatter,
+					   GESTimelineFileSource *tfs, gchar *new_uri);
+
+/**
+ * GESFormatterLoadedMethod
+ * @formatter: The #GESFormatter that is done loading
+ * @timeline: The #GESTimeline that has finnished to load
+ *
+ *  This method should be called by sublcasses when they are done
+ *  loading @timeline
+ */
+typedef gboolean (*GESFormatterLoadedMethod) (GESFormatter *formatter,
+    GESTimeline *timeline);
 
 /**
  * GESFormatterClass:
@@ -107,6 +138,8 @@ typedef gboolean (*GESFormatterLoadMethod) (GESFormatter * formatter,
  * @can_save_uri: Whether the URI can be saved
  * @load_from_uri: class method to deserialize data from a URI
  * @save_to_uri: class method to serialize data to a URI
+ * @update_source_uri: virtual method to specify that a source has moved, and thus its URI
+ * must be set to its new location (specified by the user)
  *
  * GES Formatter class. Override the vmethods to implement the formatter functionnality.
  */
@@ -114,16 +147,17 @@ typedef gboolean (*GESFormatterLoadMethod) (GESFormatter * formatter,
 struct _GESFormatterClass {
   GObjectClass parent_class;
 
-  /* FIXME : formatter name */
-  /* FIXME : formatter description */
-  /* FIXME : format name/mime-type */
-
   GESFormatterCanLoadURIMethod can_load_uri;
   GESFormatterCanSaveURIMethod can_save_uri;
   GESFormatterLoadFromURIMethod load_from_uri;
   GESFormatterSaveToURIMethod save_to_uri;
+  GESFormatterSourceMovedMethod update_source_uri;
 
   /*< private >*/
+  /* FIXME : formatter name */
+  /* FIXME : formatter description */
+  /* FIXME : format name/mime-type */
+
   GESFormatterSaveMethod save;
   GESFormatterLoadMethod load;
 
@@ -134,19 +168,27 @@ struct _GESFormatterClass {
 GType ges_formatter_get_type (void);
 
 /* Main Formatter methods */
-GESFormatter *ges_formatter_new_for_uri (gchar *uri);
+GESFormatter *ges_formatter_new_for_uri (const gchar *uri);
 GESFormatter *ges_default_formatter_new (void);
 
-gboolean ges_formatter_can_load_uri     (gchar * uri);
-gboolean ges_formatter_can_save_uri     (gchar * uri);
+gboolean ges_formatter_can_load_uri     (const gchar * uri);
+gboolean ges_formatter_can_save_uri     (const gchar * uri);
 
 gboolean ges_formatter_load_from_uri    (GESFormatter * formatter,
 					 GESTimeline  *timeline,
-					 gchar *uri);
+					 const gchar *uri);
 
 gboolean ges_formatter_save_to_uri      (GESFormatter * formatter,
 					 GESTimeline *timeline,
-					 gchar *uri);
+					 const gchar *uri);
+
+gboolean
+ges_formatter_update_source_uri         (GESFormatter * formatter,
+    GESTimelineFileSource * source, gchar * new_uri);
+
+/*< protected >*/
+gboolean
+ges_formatter_emit_loaded       (GESFormatter * formatter);
 
 /* Non-standard methods. WILL BE DEPRECATED */
 gboolean ges_formatter_load             (GESFormatter * formatter,

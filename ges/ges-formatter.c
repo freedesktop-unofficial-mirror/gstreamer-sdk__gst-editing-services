@@ -38,13 +38,20 @@
  *
  * Support for saving or loading new formats can be added by creating a subclass of
  * #GESFormatter and implement the various vmethods of #GESFormatterClass.
+ *
+ * Note that subclasses should call ges_formatter_project_loaded when they are done
+ * loading a project.
  **/
 
 #include <gst/gst.h>
+#include <gio/gio.h>
 #include <stdlib.h>
+
+#include "gesmarshal.h"
 #include "ges-formatter.h"
 #include "ges-keyfile-formatter.h"
 #include "ges-internal.h"
+#include "ges.h"
 
 G_DEFINE_ABSTRACT_TYPE (GESFormatter, ges_formatter, G_TYPE_OBJECT);
 
@@ -52,15 +59,31 @@ struct _GESFormatterPrivate
 {
   gchar *data;
   gsize length;
+
+  /* Make sure not to emit several times "moved-source" when the user already
+   * provided the new source URI. */
+  GHashTable *uri_newuri_table;
+  GHashTable *parent_newparent_table;
 };
 
 static void ges_formatter_dispose (GObject * object);
 static gboolean load_from_uri (GESFormatter * formatter, GESTimeline *
-    timeline, gchar * uri);
+    timeline, const gchar * uri);
 static gboolean save_to_uri (GESFormatter * formatter, GESTimeline *
-    timeline, gchar * uri);
-static gboolean default_can_load_uri (gchar * uri);
-static gboolean default_can_save_uri (gchar * uri);
+    timeline, const gchar * uri);
+static gboolean default_can_load_uri (const gchar * uri);
+static gboolean default_can_save_uri (const gchar * uri);
+static void discovery_error_cb (GESTimeline * timeline,
+    GESTimelineFileSource * tfs, GError * error, GESFormatter * formatter);
+
+enum
+{
+  SOURCE_MOVED_SIGNAL,
+  LOADED_SIGNAL,
+  LAST_SIGNAL
+};
+
+static guint ges_formatter_signals[LAST_SIGNAL] = { 0 };
 
 static void
 ges_formatter_class_init (GESFormatterClass * klass)
@@ -69,12 +92,34 @@ ges_formatter_class_init (GESFormatterClass * klass)
 
   g_type_class_add_private (klass, sizeof (GESFormatterPrivate));
 
+  /**
+   * GESFormatter::source-moved:
+   * @formatter: the #GESFormatter
+   * @source: The #GESTimelineFileSource that has an invalid URI. When this happens,
+   * you can call #ges_formatter_update_source_uri with the new URI of the source so
+   * the project can be loaded properly.
+   */
+  ges_formatter_signals[SOURCE_MOVED_SIGNAL] =
+      g_signal_new ("source-moved", G_TYPE_FROM_CLASS (klass),
+      G_SIGNAL_RUN_LAST, 0, NULL, NULL, ges_marshal_VOID__OBJECT, G_TYPE_NONE,
+      1, GES_TYPE_TIMELINE_FILE_SOURCE);
+
+  /**
+   * GESFormatter::loaded:
+   * @formatter: the #GESFormatter that is done loading a project.
+   */
+  ges_formatter_signals[LOADED_SIGNAL] =
+      g_signal_new ("loaded", G_TYPE_FROM_CLASS (klass),
+      G_SIGNAL_RUN_LAST, 0, NULL, NULL, ges_marshal_VOID__OBJECT, G_TYPE_NONE,
+      1, GES_TYPE_TIMELINE);
+
   object_class->dispose = ges_formatter_dispose;
 
   klass->can_load_uri = default_can_load_uri;
   klass->can_save_uri = default_can_save_uri;
   klass->load_from_uri = load_from_uri;
   klass->save_to_uri = save_to_uri;
+  klass->update_source_uri = NULL;
 }
 
 static void
@@ -82,6 +127,11 @@ ges_formatter_init (GESFormatter * object)
 {
   object->priv = G_TYPE_INSTANCE_GET_PRIVATE (object,
       GES_TYPE_FORMATTER, GESFormatterPrivate);
+
+  object->priv->uri_newuri_table = g_hash_table_new_full (g_str_hash,
+      g_str_equal, g_free, g_free);
+  object->priv->parent_newparent_table = g_hash_table_new_full (g_file_hash,
+      (GEqualFunc) g_file_equal, g_object_unref, g_object_unref);
 }
 
 static void
@@ -92,6 +142,8 @@ ges_formatter_dispose (GObject * object)
   if (priv->data) {
     g_free (priv->data);
   }
+  g_hash_table_destroy (priv->uri_newuri_table);
+  g_hash_table_destroy (priv->parent_newparent_table);
 }
 
 /**
@@ -105,7 +157,7 @@ ges_formatter_dispose (GObject * object)
  */
 
 GESFormatter *
-ges_formatter_new_for_uri (gchar * uri)
+ges_formatter_new_for_uri (const gchar * uri)
 {
   if (ges_formatter_can_load_uri (uri))
     return GES_FORMATTER (ges_keyfile_formatter_new ());
@@ -118,7 +170,7 @@ ges_formatter_new_for_uri (gchar * uri)
  * Creates a new instance of the default GESFormatter type on this system
  * (currently #GESKeyfileFormatter).
  *
- * Returns: a #GESFormatter instance or NULL 
+ * Returns: (transfer full): a #GESFormatter instance or %NULL
  */
 
 GESFormatter *
@@ -128,14 +180,14 @@ ges_default_formatter_new (void)
 }
 
 static gboolean
-default_can_load_uri (gchar * uri)
+default_can_load_uri (const gchar * uri)
 {
   GST_ERROR ("No 'can_load_uri' vmethod implementation");
   return FALSE;
 }
 
 static gboolean
-default_can_save_uri (gchar * uri)
+default_can_save_uri (const gchar * uri)
 {
   GST_ERROR ("No 'can_save_uri' vmethod implementation");
   return FALSE;
@@ -144,7 +196,7 @@ default_can_save_uri (gchar * uri)
 /**
  * ges_formatter_can_load_uri:
  * @uri: a #gchar * pointing to the URI
- * 
+ *
  * Checks if there is a #GESFormatter available which can load a #GESTimeline
  * from the given URI.
  *
@@ -153,7 +205,7 @@ default_can_save_uri (gchar * uri)
  */
 
 gboolean
-ges_formatter_can_load_uri (gchar * uri)
+ges_formatter_can_load_uri (const gchar * uri)
 {
   if (!(gst_uri_is_valid (uri))) {
     GST_ERROR ("Invalid uri!");
@@ -177,7 +229,7 @@ ges_formatter_can_load_uri (gchar * uri)
 /**
  * ges_formatter_can_save_uri:
  * @uri: a #gchar * pointing to a URI
- * 
+ *
  * Returns TRUE if there is a #GESFormatter available which can save a
  * #GESTimeline to the given URI.
  *
@@ -185,10 +237,10 @@ ges_formatter_can_load_uri (gchar * uri)
  */
 
 gboolean
-ges_formatter_can_save_uri (gchar * uri)
+ges_formatter_can_save_uri (const gchar * uri)
 {
   if (!(gst_uri_is_valid (uri))) {
-    GST_ERROR ("Invalid uri!");
+    GST_ERROR ("%s invalid uri!", uri);
     return FALSE;
   }
 
@@ -237,7 +289,7 @@ ges_formatter_set_data (GESFormatter * formatter, void *data, gsize length)
  *
  * Lets you get the data @formatter used for loading.
  *
- * Returns: a pointer to the data.
+ * Returns: (transfer none): a pointer to the data.
  */
 void *
 ges_formatter_get_data (GESFormatter * formatter, gsize * length)
@@ -285,6 +337,7 @@ ges_formatter_load (GESFormatter * formatter, GESTimeline * timeline)
 {
   GESFormatterClass *klass;
 
+  formatter->timeline = timeline;
   klass = GES_FORMATTER_GET_CLASS (formatter);
 
   if (klass->load)
@@ -312,6 +365,7 @@ ges_formatter_save (GESFormatter * formatter, GESTimeline * timeline)
   GList *layers;
 
   /* Saving an empty timeline is not allowed */
+  /* FIXME : Having a ges_timeline_is_empty() would be more efficient maybe */
   layers = ges_timeline_get_layers (timeline);
 
   g_return_val_if_fail (layers != NULL, FALSE);
@@ -333,7 +387,7 @@ ges_formatter_save (GESFormatter * formatter, GESTimeline * timeline)
  * @formatter: a #GESFormatter
  * @timeline: a #GESTimeline
  * @uri: a #gchar * pointing to a URI
- * 
+ *
  * Load data from the given URI into timeline.
  *
  * Returns: TRUE if the timeline data was successfully loaded from the URI,
@@ -342,18 +396,29 @@ ges_formatter_save (GESFormatter * formatter, GESTimeline * timeline)
 
 gboolean
 ges_formatter_load_from_uri (GESFormatter * formatter, GESTimeline * timeline,
-    gchar * uri)
+    const gchar * uri)
 {
+  gboolean ret = FALSE;
   GESFormatterClass *klass = GES_FORMATTER_GET_CLASS (formatter);
 
-  if (klass->load_from_uri)
-    return klass->load_from_uri (formatter, timeline, uri);
+  g_return_val_if_fail (GES_IS_FORMATTER (formatter), FALSE);
+  g_return_val_if_fail (GES_IS_TIMELINE (timeline), FALSE);
 
-  return FALSE;
+  g_signal_connect (timeline, "discovery-error",
+      G_CALLBACK (discovery_error_cb), formatter);
+  if (klass->load_from_uri) {
+    ges_timeline_enable_update (timeline, FALSE);
+    formatter->timeline = timeline;
+    ret = klass->load_from_uri (formatter, timeline, uri);
+    ges_timeline_enable_update (timeline, TRUE);
+  }
+
+  return ret;
 }
 
 static gboolean
-load_from_uri (GESFormatter * formatter, GESTimeline * timeline, gchar * uri)
+load_from_uri (GESFormatter * formatter, GESTimeline * timeline,
+    const gchar * uri)
 {
   gchar *location;
   GError *e = NULL;
@@ -400,27 +465,21 @@ load_from_uri (GESFormatter * formatter, GESTimeline * timeline, gchar * uri)
 
 gboolean
 ges_formatter_save_to_uri (GESFormatter * formatter, GESTimeline *
-    timeline, gchar * uri)
+    timeline, const gchar * uri)
 {
   GESFormatterClass *klass = GES_FORMATTER_GET_CLASS (formatter);
-  GList *layers, *tmp;
-
-
-  /* Saving an empty timeline is not allowed */
-  layers = ges_timeline_get_layers (timeline);
-  g_return_val_if_fail (layers != NULL, FALSE);
-  for (tmp = layers; tmp; tmp = g_list_next (tmp)) {
-    g_object_unref (tmp);
-  }
 
   if (klass->save_to_uri)
     return klass->save_to_uri (formatter, timeline, uri);
+
+  GST_ERROR ("not implemented!");
 
   return FALSE;
 }
 
 static gboolean
-save_to_uri (GESFormatter * formatter, GESTimeline * timeline, gchar * uri)
+save_to_uri (GESFormatter * formatter, GESTimeline * timeline,
+    const gchar * uri)
 {
   gchar *location;
   GError *e = NULL;
@@ -445,4 +504,108 @@ save_to_uri (GESFormatter * formatter, GESTimeline * timeline, gchar * uri)
   g_free (location);
 
   return ret;
+}
+
+gboolean
+ges_formatter_update_source_uri (GESFormatter * formatter,
+    GESTimelineFileSource * source, gchar * new_uri)
+{
+  GESFormatterClass *klass = GES_FORMATTER_GET_CLASS (formatter);
+
+  if (klass->update_source_uri) {
+    const gchar *uri = ges_timeline_filesource_get_uri (source);
+    gchar *cached_uri =
+        g_hash_table_lookup (formatter->priv->uri_newuri_table, uri);
+
+    if (!cached_uri) {
+      GFile *parent, *new_parent, *new_file = g_file_new_for_uri (new_uri),
+          *file = g_file_new_for_uri (uri);
+
+      parent = g_file_get_parent (file);
+      new_parent = g_file_get_parent (new_file);
+      g_hash_table_insert (formatter->priv->uri_newuri_table, g_strdup (uri),
+          g_strdup (new_uri));
+
+      g_hash_table_insert (formatter->priv->parent_newparent_table,
+          parent, new_parent);
+
+      GST_DEBUG ("Adding %s and its parent to the new uri cache", new_uri);
+
+      g_object_unref (file);
+      g_object_unref (new_file);
+    }
+
+    return klass->update_source_uri (formatter, source, new_uri);
+  }
+
+  GST_ERROR ("not implemented!");
+
+  return FALSE;
+}
+
+static void
+discovery_error_cb (GESTimeline * timeline,
+    GESTimelineFileSource * tfs, GError * error, GESFormatter * formatter)
+{
+  if (error->domain == GST_RESOURCE_ERROR &&
+      error->code == GST_RESOURCE_ERROR_NOT_FOUND) {
+    const gchar *uri = ges_timeline_filesource_get_uri (tfs);
+    gchar *new_uri = g_hash_table_lookup (formatter->priv->uri_newuri_table,
+        uri);
+
+    /* We didn't find this exact URI, trying to find its parent new directory */
+    if (!new_uri) {
+      GFile *parent, *file = g_file_new_for_uri (uri);
+
+      /* Check if we have the new parent in cache */
+      parent = g_file_get_parent (file);
+      if (parent) {
+        GFile *new_parent =
+            g_hash_table_lookup (formatter->priv->parent_newparent_table,
+            parent);
+
+        if (new_parent) {
+          gchar *basename = g_file_get_basename (file);
+          GFile *new_file = g_file_get_child (new_parent, basename);
+
+          new_uri = g_file_get_uri (new_file);
+
+          g_object_unref (new_file);
+          g_object_unref (parent);
+          g_free (basename);
+        }
+      }
+
+      g_object_unref (file);
+    }
+
+    if (new_uri) {
+      ges_formatter_update_source_uri (formatter, tfs, new_uri);
+      GST_DEBUG ("%s found in the cache, new uri: %s", uri, new_uri);
+
+    } else {
+      g_signal_emit (formatter, ges_formatter_signals[SOURCE_MOVED_SIGNAL], 0,
+          tfs);
+    }
+  }
+}
+
+/*< protected >*/
+/**
+ * ges_formatter_emit_loaded:
+ * @formatter: The #GESFormatter from which to emit the "project-loaded" signal
+ *
+ * Emits the "loaded" signal. This method should be called by sublasses when
+ * the project is fully loaded.
+ *
+ * Returns: %TRUE if the signale could be emitted %FALSE otherwize
+ */
+gboolean
+ges_formatter_emit_loaded (GESFormatter * formatter)
+{
+  GST_INFO_OBJECT (formatter, "Emit project loaded");
+  g_signal_emit (formatter, ges_formatter_signals[LOADED_SIGNAL], 0,
+      formatter->timeline);
+
+  return TRUE;
 }

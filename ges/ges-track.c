@@ -32,33 +32,428 @@
 #include "ges-internal.h"
 #include "ges-track.h"
 #include "ges-track-object.h"
+#include "gesmarshal.h"
 
 G_DEFINE_TYPE (GESTrack, ges_track, GST_TYPE_BIN);
+
+/* Structure that represents gaps and keep knowledge
+ * of the gaps filled in the track */
+typedef struct
+{
+  GstElement *gnlobj;
+
+  GstClockTime start;
+  GstClockTime duration;
+  GESTrack *track;
+} Gap;
 
 struct _GESTrackPrivate
 {
   /*< private > */
   GESTimeline *timeline;
-  GList *trackobjects;
+  GSequence *tckobjs_by_start;
+  GList *gaps;
+
+  guint64 duration;
 
   GstCaps *caps;
 
   GstElement *composition;      /* The composition associated with this track */
   GstPad *srcpad;               /* The source GhostPad */
+
+  gboolean updating;
+
+  /* Virtual method to create GstElement that fill gaps */
+  GESCreateElementForGapFunc create_element_for_gaps;
 };
 
 enum
 {
   ARG_0,
   ARG_CAPS,
-  ARG_TYPE
+  ARG_TYPE,
+  ARG_DURATION,
+  ARG_LAST,
+  TRACK_OBJECT_ADDED,
+  TRACK_OBJECT_REMOVED,
+  LAST_SIGNAL
 };
 
-static void pad_added_cb (GstElement * element, GstPad * pad, GESTrack * track);
+static guint ges_track_signals[LAST_SIGNAL] = { 0 };
 
+static GParamSpec *properties[ARG_LAST];
+
+static void pad_added_cb (GstElement * element, GstPad * pad, GESTrack * track);
 static void
 pad_removed_cb (GstElement * element, GstPad * pad, GESTrack * track);
+static void composition_duration_cb (GstElement * composition, GParamSpec * arg
+    G_GNUC_UNUSED, GESTrack * obj);
 
+/* Private methods/functions/callbacks */
+
+/* Utilities */
+static gint
+objects_start_compare (GESTrackObject * a, GESTrackObject * b,
+    gpointer user_data)
+{
+
+  if (a->start == b->start) {
+    if (a->priority < b->priority)
+      return -1;
+    if (a->priority > b->priority)
+      return 1;
+    return 0;
+  }
+  if (a->start < b->start)
+    return -1;
+  if (a->start > b->start)
+    return 1;
+  return 0;
+}
+
+static void
+add_trackobj_to_list_foreach (GESTrackObject * trackobj, GList ** list)
+{
+  g_object_ref (trackobj);
+  *list = g_list_prepend (*list, trackobj);
+}
+
+static Gap *
+gap_new (GESTrack * track, GstClockTime start, GstClockTime duration)
+{
+  GstElement *gnlsrc, *elem;
+
+  Gap *new_gap;
+
+  gnlsrc = gst_element_factory_make ("gnlsource", NULL);
+  elem = track->priv->create_element_for_gaps (track);
+  if (G_UNLIKELY (gst_bin_add (GST_BIN (gnlsrc), elem) == FALSE)) {
+    GST_WARNING_OBJECT (track, "Could not create gap filler");
+
+    if (gnlsrc)
+      gst_object_unref (gnlsrc);
+
+    if (elem)
+      gst_object_unref (elem);
+
+    return NULL;
+  }
+
+  if (G_UNLIKELY (gst_bin_add (GST_BIN (track->priv->composition),
+              gnlsrc) == FALSE)) {
+    GST_WARNING_OBJECT (track, "Could not add gap to the composition");
+
+    if (gnlsrc)
+      gst_object_unref (gnlsrc);
+
+    if (elem)
+      gst_object_unref (elem);
+
+    return NULL;
+  }
+
+  new_gap = g_slice_new (Gap);
+  new_gap->start = start;
+  new_gap->duration = duration;
+  new_gap->track = track;
+  new_gap->gnlobj = gst_object_ref (gnlsrc);
+
+
+  g_object_set (gnlsrc, "start", new_gap->start, "duration", new_gap->duration,
+      "priority", 0, NULL);
+
+  GST_DEBUG_OBJECT (track,
+      "Created gap with start %" GST_TIME_FORMAT " duration %" GST_TIME_FORMAT,
+      GST_TIME_ARGS (new_gap->start), GST_TIME_ARGS (new_gap->duration));
+
+
+  return new_gap;
+}
+
+static void
+free_gap (Gap * gap)
+{
+  GESTrack *track = gap->track;
+
+  GST_DEBUG_OBJECT (track, "Removed gap with start %" GST_TIME_FORMAT
+      " duration %" GST_TIME_FORMAT, GST_TIME_ARGS (gap->start),
+      GST_TIME_ARGS (gap->duration));
+  gst_bin_remove (GST_BIN (track->priv->composition), gap->gnlobj);
+  gst_element_set_state (gap->gnlobj, GST_STATE_NULL);
+  gst_object_unref (gap->gnlobj);
+
+  g_slice_free (Gap, gap);
+}
+
+static inline void
+update_gaps (GESTrack * track)
+{
+  Gap *gap;
+  GSequenceIter *it;
+
+  GESTrackObject *tckobj;
+  GstClockTime start, end, duration = 0, timeline_duration;
+
+  GESTrackPrivate *priv = track->priv;
+
+  if (priv->create_element_for_gaps == NULL) {
+    GST_INFO ("Not filling the gaps as no create_element_for_gaps vmethod"
+        " provided");
+    return;
+  }
+
+  /* 1- Remove all gaps */
+  g_list_free_full (priv->gaps, (GDestroyNotify) free_gap);
+  priv->gaps = NULL;
+
+  /* 2- And recalculate gaps */
+  for (it = g_sequence_get_begin_iter (priv->tckobjs_by_start);
+      g_sequence_iter_is_end (it) == FALSE; it = g_sequence_iter_next (it)) {
+    tckobj = g_sequence_get (it);
+
+    start = GES_TRACK_OBJECT_START (tckobj);
+    end = start + GES_TRACK_OBJECT_DURATION (tckobj);
+
+    if (start > duration) {
+      /* 3- Fill gap */
+      gap = gap_new (track, duration, start - duration);
+
+      if (G_LIKELY (gap != NULL))
+        priv->gaps = g_list_prepend (priv->gaps, gap);
+    }
+
+    duration = MAX (duration, end);
+  }
+
+  /* 4- Add a gap at the end of the timeline if needed */
+  if (priv->timeline) {
+    g_object_get (priv->timeline, "duration", &timeline_duration, NULL);
+
+    if (duration < timeline_duration) {
+      gap = gap_new (track, duration, timeline_duration - duration);
+
+      if (G_LIKELY (gap != NULL)) {
+        priv->gaps = g_list_prepend (priv->gaps, gap);
+      }
+
+      priv->duration = timeline_duration;
+    }
+
+  }
+}
+
+static inline void
+resort_and_fill_gaps (GESTrack * track)
+{
+  g_sequence_sort (track->priv->tckobjs_by_start,
+      (GCompareDataFunc) objects_start_compare, NULL);
+
+  if (track->priv->updating == TRUE) {
+    update_gaps (track);
+  }
+}
+
+/* callbacks */
+static void
+timeline_duration_changed_cb (GESTimeline * timeline,
+    GParamSpec * arg, GESTrack * track)
+{
+  GESTrackPrivate *priv = track->priv;
+
+  /* Remove the last gap on the timeline if not needed anymore */
+  if (priv->updating == TRUE && priv->gaps) {
+    Gap *gap = (Gap *) priv->gaps->data;
+    GstClockTime tl_duration = ges_timeline_get_duration (timeline);
+
+    if (gap->start + gap->duration > tl_duration) {
+      free_gap (gap);
+      priv->gaps = g_list_remove (priv->gaps, gap);
+    }
+  }
+}
+
+static void
+sort_track_objects_cb (GESTrackObject * child,
+    GParamSpec * arg G_GNUC_UNUSED, GESTrack * track)
+{
+  resort_and_fill_gaps (track);
+}
+
+static void
+pad_added_cb (GstElement * element, GstPad * pad, GESTrack * track)
+{
+  GESTrackPrivate *priv = track->priv;
+
+  GST_DEBUG ("track:%p, pad %s:%s", track, GST_DEBUG_PAD_NAME (pad));
+
+  /* ghost the pad */
+  priv->srcpad = gst_ghost_pad_new ("src", pad);
+
+  gst_pad_set_active (priv->srcpad, TRUE);
+
+  gst_element_add_pad (GST_ELEMENT (track), priv->srcpad);
+
+  GST_DEBUG ("done");
+}
+
+static void
+pad_removed_cb (GstElement * element, GstPad * pad, GESTrack * track)
+{
+  GESTrackPrivate *priv = track->priv;
+
+  GST_DEBUG ("track:%p, pad %s:%s", track, GST_DEBUG_PAD_NAME (pad));
+
+  if (G_LIKELY (priv->srcpad)) {
+    gst_pad_set_active (priv->srcpad, FALSE);
+    gst_element_remove_pad (GST_ELEMENT (track), priv->srcpad);
+    priv->srcpad = NULL;
+  }
+
+  GST_DEBUG ("done");
+}
+
+static void
+composition_duration_cb (GstElement * composition,
+    GParamSpec * arg G_GNUC_UNUSED, GESTrack * track)
+{
+  guint64 duration;
+
+  g_object_get (composition, "duration", &duration, NULL);
+
+
+  if (track->priv->duration != duration) {
+    GST_DEBUG_OBJECT (track,
+        "composition duration : %" GST_TIME_FORMAT " current : %"
+        GST_TIME_FORMAT, GST_TIME_ARGS (duration),
+        GST_TIME_ARGS (track->priv->duration));
+
+    track->priv->duration = duration;
+
+    g_object_notify_by_pspec (G_OBJECT (track), properties[ARG_DURATION]);
+  }
+}
+
+/* GESCreateElementForGapFunc Gaps filler for raw tracks */
+static GstElement *
+create_element_for_raw_audio_gap (GESTrack * track)
+{
+  GstElement *elem;
+
+  elem = gst_element_factory_make ("audiotestsrc", NULL);
+  g_object_set (elem, "wave", 4, NULL);
+
+  return elem;
+}
+
+static GstElement *
+create_element_for_raw_video_gap (GESTrack * track)
+{
+  GstElement *elem;
+
+  elem = gst_element_factory_make ("videotestsrc", NULL);
+  g_object_set (elem, "pattern", 2, NULL);
+
+  return elem;
+}
+
+/* Remove @object from @track, but keeps it in the sequence this is needed
+ * when finalizing as we can not change a GSequence at the same time we are
+ * accessing it
+ */
+static gboolean
+remove_object_internal (GESTrack * track, GESTrackObject * object)
+{
+  GESTrackPrivate *priv;
+  GstElement *gnlobject;
+
+  GST_DEBUG_OBJECT (track, "object:%p", object);
+
+  priv = track->priv;
+
+  if (G_UNLIKELY (ges_track_object_get_track (object) != track)) {
+    GST_WARNING ("Object belongs to another track");
+    return FALSE;
+  }
+
+  if ((gnlobject = ges_track_object_get_gnlobject (object))) {
+    GST_DEBUG ("Removing GnlObject '%s' from composition '%s'",
+        GST_ELEMENT_NAME (gnlobject), GST_ELEMENT_NAME (priv->composition));
+
+    if (!gst_bin_remove (GST_BIN (priv->composition), gnlobject)) {
+      GST_WARNING ("Failed to remove gnlobject from composition");
+      return FALSE;
+    }
+
+    gst_element_set_state (gnlobject, GST_STATE_NULL);
+  }
+
+  g_signal_handlers_disconnect_by_func (object, sort_track_objects_cb, NULL);
+
+  ges_track_object_set_track (object, NULL);
+
+  g_signal_emit (track, ges_track_signals[TRACK_OBJECT_REMOVED], 0,
+      GES_TRACK_OBJECT (object));
+
+  g_object_unref (object);
+
+  return TRUE;
+}
+
+static GSequenceIter *
+lookup_trackobj_it (GSequence * seq, GESTrackObject * object)
+{
+  GSequenceIter *iter, *tmpiter;
+  GESTrackObject *found, *tmptckobj;
+
+  iter = g_sequence_lookup (seq, object,
+      (GCompareDataFunc) objects_start_compare, NULL);
+
+  found = g_sequence_get (iter);
+
+  /* We have the same TrackObject so we are all fine */
+  if (found == object)
+    return iter;
+
+  if (!g_sequence_iter_is_end (iter)) {
+    /* Looking frontward for the good TrackObject */
+    tmpiter = iter;
+    while ((tmpiter = g_sequence_iter_next (tmpiter))) {
+      if (g_sequence_iter_is_end (tmpiter))
+        break;
+
+      tmptckobj = g_sequence_get (tmpiter);
+      if (tmptckobj == object)
+        return tmpiter;
+    }
+  }
+
+  if (!g_sequence_iter_is_begin (iter)) {
+    /* Looking backward for the good TrackObject */
+    tmpiter = iter;
+    while ((tmpiter = g_sequence_iter_prev (tmpiter))) {
+      tmptckobj = g_sequence_get (tmpiter);
+      if (tmptckobj == object)
+        return tmpiter;
+    }
+  }
+
+  GST_ERROR_OBJECT (object, "TrackObject not found this should never happen");
+
+  return NULL;
+}
+
+static void
+dispose_tckobjs_foreach (GESTrackObject * tckobj, GESTrack * track)
+{
+  GESTimelineObject *tlobj;
+
+  tlobj = ges_track_object_get_timeline_object (tckobj);
+
+  remove_object_internal (track, tckobj);
+  ges_timeline_object_release_track_object (tlobj, tckobj);
+}
+
+/* GObject virtual methods */
 static void
 ges_track_get_property (GObject * object, guint property_id,
     GValue * value, GParamSpec * pspec)
@@ -71,6 +466,9 @@ ges_track_get_property (GObject * object, guint property_id,
       break;
     case ARG_TYPE:
       g_value_set_flags (value, track->type);
+      break;
+    case ARG_DURATION:
+      g_value_set_uint64 (value, track->priv->duration);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
@@ -101,12 +499,11 @@ ges_track_dispose (GObject * object)
   GESTrack *track = (GESTrack *) object;
   GESTrackPrivate *priv = track->priv;
 
-  while (priv->trackobjects) {
-    GESTrackObject *trobj = GES_TRACK_OBJECT (priv->trackobjects->data);
-    ges_track_remove_object (track, trobj);
-    ges_timeline_object_release_track_object ((GESTimelineObject *)
-        ges_track_object_get_timeline_object (trobj), trobj);
-  }
+  /* Remove all TrackObjects and drop our reference */
+  g_sequence_foreach (track->priv->tckobjs_by_start,
+      (GFunc) dispose_tckobjs_foreach, track);
+  g_sequence_free (priv->tckobjs_by_start);
+  g_list_free_full (priv->gaps, (GDestroyNotify) free_gap);
 
   if (priv->composition) {
     gst_bin_remove (GST_BIN (object), priv->composition);
@@ -147,10 +544,24 @@ ges_track_class_init (GESTrackClass * klass)
    *
    * Default value: #GST_CAPS_ANY.
    */
+  properties[ARG_CAPS] = g_param_spec_boxed ("caps", "Caps",
+      "Caps used to filter/choose the output stream",
+      GST_TYPE_CAPS, G_PARAM_READWRITE | G_PARAM_CONSTRUCT);
   g_object_class_install_property (object_class, ARG_CAPS,
-      g_param_spec_boxed ("caps", "Caps",
-          "Caps used to filter/choose the output stream",
-          GST_TYPE_CAPS, G_PARAM_READWRITE | G_PARAM_CONSTRUCT));
+      properties[ARG_CAPS]);
+
+  /**
+   * GESTrack:duration
+   *
+   * Current duration of the track
+   *
+   * Default value: O
+   */
+  properties[ARG_DURATION] = g_param_spec_uint64 ("duration", "Duration",
+      "The current duration of the track", 0, G_MAXUINT64, GST_SECOND,
+      G_PARAM_READABLE);
+  g_object_class_install_property (object_class, ARG_DURATION,
+      properties[ARG_DURATION]);
 
   /**
    * GESTrack:track-type
@@ -162,11 +573,40 @@ ges_track_class_init (GESTrackClass * klass)
    * from the #GESTrack without having to actually check the #GESTrack's caps
    * property.
    */
+  properties[ARG_TYPE] = g_param_spec_flags ("track-type", "TrackType",
+      "Type of stream the track outputs",
+      GES_TYPE_TRACK_TYPE, GES_TRACK_TYPE_CUSTOM,
+      G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY);
   g_object_class_install_property (object_class, ARG_TYPE,
-      g_param_spec_flags ("track-type", "TrackType",
-          "Type of stream the track outputs",
-          GES_TYPE_TRACK_TYPE, GES_TRACK_TYPE_CUSTOM,
-          G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY));
+      properties[ARG_TYPE]);
+
+  /**
+   * GESTrack::track-object-added
+   * @object: the #GESTrack
+   * @effect: the #GESTrackObject that was added.
+   *
+   * Will be emitted after a track object was added to the track.
+   *
+   * Since: 0.10.2
+   */
+  ges_track_signals[TRACK_OBJECT_ADDED] =
+      g_signal_new ("track-object-added", G_TYPE_FROM_CLASS (klass),
+      G_SIGNAL_RUN_FIRST, 0, NULL, NULL, ges_marshal_VOID__OBJECT,
+      G_TYPE_NONE, 1, GES_TYPE_TRACK_OBJECT);
+
+  /**
+   * GESTrack::track-object-removed
+   * @object: the #GESTrack
+   * @effect: the #GESTrackObject that was removed.
+   *
+   * Will be emitted after a track object was removed from the track.
+   *
+   * Since: 0.10.2
+   */
+  ges_track_signals[TRACK_OBJECT_REMOVED] =
+      g_signal_new ("track-object-removed", G_TYPE_FROM_CLASS (klass),
+      G_SIGNAL_RUN_FIRST, 0, NULL, NULL, ges_marshal_VOID__OBJECT,
+      G_TYPE_NONE, 1, GES_TYPE_TRACK_OBJECT);
 }
 
 static void
@@ -176,7 +616,13 @@ ges_track_init (GESTrack * self)
       GES_TYPE_TRACK, GESTrackPrivate);
 
   self->priv->composition = gst_element_factory_make ("gnlcomposition", NULL);
+  self->priv->updating = TRUE;
+  self->priv->tckobjs_by_start = g_sequence_new (NULL);
+  self->priv->create_element_for_gaps = NULL;
+  self->priv->gaps = NULL;
 
+  g_signal_connect (G_OBJECT (self->priv->composition), "notify::duration",
+      G_CALLBACK (composition_duration_cb), self);
   g_signal_connect (self->priv->composition, "pad-added",
       (GCallback) pad_added_cb, self);
   g_signal_connect (self->priv->composition, "pad-removed",
@@ -193,7 +639,7 @@ ges_track_init (GESTrack * self)
  *
  * Creates a new #GESTrack with the given @type and @caps.
  *
- * The newly created track will steal a reference to the caps. If you wish to 
+ * The newly created track will steal a reference to the caps. If you wish to
  * use those caps elsewhere, you will have to take an extra reference.
  *
  * Returns: A new #GESTrack.
@@ -224,6 +670,10 @@ ges_track_video_raw_new (void)
   GstCaps *caps = gst_caps_from_string ("video/x-raw-yuv;video/x-raw-rgb");
 
   track = ges_track_new (GES_TRACK_TYPE_VIDEO, caps);
+  ges_track_set_create_element_for_gap_func (track,
+      create_element_for_raw_video_gap);
+
+  GST_DEBUG_OBJECT (track, "New raw video track");
 
   return track;
 }
@@ -243,7 +693,11 @@ ges_track_audio_raw_new (void)
   GstCaps *caps = gst_caps_from_string ("audio/x-raw-int;audio/x-raw-float");
 
   track = ges_track_new (GES_TRACK_TYPE_AUDIO, caps);
+  ges_track_set_create_element_for_gap_func (track,
+      create_element_for_raw_audio_gap);
 
+  GST_DEBUG_OBJECT (track, "New raw audio track %p",
+      track->priv->create_element_for_gaps);
   return track;
 }
 
@@ -258,6 +712,14 @@ void
 ges_track_set_timeline (GESTrack * track, GESTimeline * timeline)
 {
   GST_DEBUG ("track:%p, timeline:%p", track, timeline);
+
+  if (track->priv->timeline)
+    g_signal_handlers_disconnect_by_func (track->priv->timeline,
+        timeline_duration_changed_cb, track);
+
+  if (timeline)
+    g_signal_connect (timeline, "notify::duration",
+        G_CALLBACK (timeline_duration_changed_cb), track);
 
   track->priv->timeline = timeline;
 }
@@ -315,20 +777,14 @@ ges_track_add_object (GESTrack * track, GESTrackObject * object)
     return FALSE;
   }
 
-  /* At this point, the track object shouldn't have any gnlobject since
-   * it hasn't been added to a track yet.
-   * FIXME : This check seems a bit obsolete */
-  if (G_UNLIKELY (ges_track_object_get_gnlobject (object) != NULL)) {
-    GST_ERROR ("TrackObject already controls a gnlobject !");
-    return FALSE;
-  }
-
   if (G_UNLIKELY (!ges_track_object_set_track (object, track))) {
     GST_ERROR ("Couldn't properly add the object to the Track");
     return FALSE;
   }
 
-  GST_DEBUG ("Adding object to ourself");
+  GST_DEBUG ("Adding object %s to ourself %s",
+      GST_OBJECT_NAME (ges_track_object_get_gnlobject (object)),
+      GST_OBJECT_NAME (track->priv->composition));
 
   if (G_UNLIKELY (!gst_bin_add (GST_BIN (track->priv->composition),
               ges_track_object_get_gnlobject (object)))) {
@@ -337,10 +793,47 @@ ges_track_add_object (GESTrack * track, GESTrackObject * object)
   }
 
   g_object_ref_sink (object);
+  g_sequence_insert_sorted (track->priv->tckobjs_by_start, object,
+      (GCompareDataFunc) objects_start_compare, NULL);
 
-  track->priv->trackobjects = g_list_append (track->priv->trackobjects, object);
+  g_signal_emit (track, ges_track_signals[TRACK_OBJECT_ADDED], 0,
+      GES_TRACK_OBJECT (object));
+
+  g_signal_connect (GES_TRACK_OBJECT (object), "notify::start",
+      G_CALLBACK (sort_track_objects_cb), track);
+
+  g_signal_connect (GES_TRACK_OBJECT (object), "notify::duration",
+      G_CALLBACK (sort_track_objects_cb), track);
+
+  g_signal_connect (GES_TRACK_OBJECT (object), "notify::priority",
+      G_CALLBACK (sort_track_objects_cb), track);
+
+  resort_and_fill_gaps (track);
 
   return TRUE;
+}
+
+/**
+ * ges_track_get_objects:
+ * @track: a #GESTrack
+ *
+ * Gets the #GESTrackObject contained in @track
+ *
+ * Returns: (transfer full) (element-type GESTrackObject): the list of
+ * #GESTrackObject present in the Track sorted by priority and start.
+ */
+GList *
+ges_track_get_objects (GESTrack * track)
+{
+  GList *ret = NULL;
+
+  g_return_val_if_fail (GES_IS_TRACK (track), NULL);
+
+  g_sequence_foreach (track->priv->tckobjs_by_start,
+      (GFunc) add_trackobj_to_list_foreach, &ret);
+
+  ret = g_list_reverse (ret);
+  return ret;
 }
 
 /**
@@ -359,68 +852,24 @@ ges_track_add_object (GESTrack * track, GESTrackObject * object)
 gboolean
 ges_track_remove_object (GESTrack * track, GESTrackObject * object)
 {
+  GSequenceIter *it;
   GESTrackPrivate *priv;
-  GstElement *gnlobject;
 
   g_return_val_if_fail (GES_IS_TRACK (track), FALSE);
   g_return_val_if_fail (GES_IS_TRACK_OBJECT (object), FALSE);
 
-  GST_DEBUG ("track:%p, object:%p", track, object);
-
   priv = track->priv;
 
-  if (G_UNLIKELY (ges_track_object_get_track (object) != track)) {
-    GST_WARNING ("Object belongs to another track");
-    return FALSE;
+  if (remove_object_internal (track, object) == TRUE) {
+    it = lookup_trackobj_it (priv->tckobjs_by_start, object);
+    g_sequence_remove (it);
+
+    resort_and_fill_gaps (track);
+
+    return TRUE;
   }
 
-  if ((gnlobject = ges_track_object_get_gnlobject (object))) {
-    GST_DEBUG ("Removing GnlObject from composition");
-    if (!gst_bin_remove (GST_BIN (priv->composition), gnlobject)) {
-      GST_WARNING ("Failed to remove gnlobject from composition");
-      return FALSE;
-    }
-  }
-
-  ges_track_object_set_track (object, NULL);
-  priv->trackobjects = g_list_remove (priv->trackobjects, object);
-
-  g_object_unref (object);
-
-  return TRUE;
-}
-
-static void
-pad_added_cb (GstElement * element, GstPad * pad, GESTrack * track)
-{
-  GESTrackPrivate *priv = track->priv;
-
-  GST_DEBUG ("track:%p, pad %s:%s", track, GST_DEBUG_PAD_NAME (pad));
-
-  /* ghost the pad */
-  priv->srcpad = gst_ghost_pad_new ("src", pad);
-
-  gst_pad_set_active (priv->srcpad, TRUE);
-
-  gst_element_add_pad (GST_ELEMENT (track), priv->srcpad);
-
-  GST_DEBUG ("done");
-}
-
-static void
-pad_removed_cb (GstElement * element, GstPad * pad, GESTrack * track)
-{
-  GESTrackPrivate *priv = track->priv;
-
-  GST_DEBUG ("track:%p, pad %s:%s", track, GST_DEBUG_PAD_NAME (pad));
-
-  if (G_LIKELY (priv->srcpad)) {
-    gst_pad_set_active (priv->srcpad, FALSE);
-    gst_element_remove_pad (GST_ELEMENT (track), priv->srcpad);
-    priv->srcpad = NULL;
-  }
-
-  GST_DEBUG ("done");
+  return FALSE;
 }
 
 /**
@@ -453,4 +902,70 @@ ges_track_get_timeline (GESTrack * track)
   g_return_val_if_fail (GES_IS_TRACK (track), NULL);
 
   return track->priv->timeline;
+}
+
+/**
+ * ges_track_enable_update:
+ * @track: a #GESTrack
+ * @enabled: Whether the track should update on every change or not.
+ *
+ * Control whether the track is updated for every change happening within.
+ *
+ * Users will want to use this method with %FALSE before doing lots of changes,
+ * and then call again with %TRUE for the changes to take effect in one go.
+ *
+ * Returns: %TRUE if the update status could be changed, else %FALSE.
+ */
+gboolean
+ges_track_enable_update (GESTrack * track, gboolean enabled)
+{
+  gboolean update;
+
+  g_return_val_if_fail (GES_IS_TRACK (track), FALSE);
+
+  g_object_set (track->priv->composition, "update", enabled, NULL);
+  g_object_get (track->priv->composition, "update", &update, NULL);
+
+  track->priv->updating = update;
+
+  if (update == TRUE)
+    resort_and_fill_gaps (track);
+
+  return update == enabled;
+}
+
+/**
+ * ges_track_is_updating:
+ * @track: a #GESTrack
+ *
+ * Get whether the track is updated for every change happening within or not.
+ *
+ * Returns: %TRUE if @track is updating on every changes, else %FALSE.
+ */
+gboolean
+ges_track_is_updating (GESTrack * track)
+{
+  g_return_val_if_fail (GES_IS_TRACK (track), FALSE);
+
+  return track->priv->updating;
+}
+
+
+/**
+ * ges_track_set_create_element_for_gap_func:
+ * @track: a #GESTrack
+ * @func: (scope notified): The #GESCreateElementForGapFunc that will be used
+ * to create #GstElement to fill gaps
+ *
+ * Sets the function that should be used to create the GstElement used to fill gaps.
+ * To avoid to provide such a function we advice you to use the
+ * #ges_track_audio_raw_new and #ges_track_video_raw_new constructor when possible.
+ */
+void
+ges_track_set_create_element_for_gap_func (GESTrack * track,
+    GESCreateElementForGapFunc func)
+{
+  g_return_if_fail (GES_IS_TRACK (track));
+
+  track->priv->create_element_for_gaps = func;
 }

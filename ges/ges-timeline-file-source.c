@@ -22,7 +22,7 @@
  * SECTION:ges-timeline-filesource
  * @short_description: An object for manipulating media files in a GESTimeline
  * 
- * Represents all the output treams from a particular uri. It is assumed that
+ * Represents all the output streams from a particular uri. It is assumed that
  * the URI points to a file of some type.
  */
 
@@ -42,21 +42,13 @@ struct _GESTimelineFileSourcePrivate
 
   gboolean mute;
   gboolean is_image;
-
-  guint64 maxduration;
-
-  /* The formats supported by this filesource
-   * TODO : Could maybe be moved to a parent class */
-  GESTrackType supportedformats;
 };
 
 enum
 {
   PROP_0,
   PROP_URI,
-  PROP_MAX_DURATION,
   PROP_MUTE,
-  PROP_SUPPORTED_FORMATS,
   PROP_IS_IMAGE,
 };
 
@@ -64,6 +56,11 @@ enum
 static GESTrackObject
     * ges_timeline_filesource_create_track_object (GESTimelineObject * obj,
     GESTrack * track);
+void
+ges_timeline_filesource_set_uri (GESTimelineFileSource * self, gchar * uri);
+
+static void
+filesource_set_max_duration (GESTimelineObject * object, guint64 maxduration);
 
 static void
 ges_timeline_filesource_get_property (GObject * object, guint property_id,
@@ -77,12 +74,6 @@ ges_timeline_filesource_get_property (GObject * object, guint property_id,
       break;
     case PROP_MUTE:
       g_value_set_boolean (value, priv->mute);
-      break;
-    case PROP_MAX_DURATION:
-      g_value_set_uint64 (value, priv->maxduration);
-      break;
-    case PROP_SUPPORTED_FORMATS:
-      g_value_set_flags (value, priv->supportedformats);
       break;
     case PROP_IS_IMAGE:
       g_value_set_boolean (value, priv->is_image);
@@ -100,18 +91,10 @@ ges_timeline_filesource_set_property (GObject * object, guint property_id,
 
   switch (property_id) {
     case PROP_URI:
-      tfs->priv->uri = g_value_dup_string (value);
+      ges_timeline_filesource_set_uri (tfs, g_value_dup_string (value));
       break;
     case PROP_MUTE:
       ges_timeline_filesource_set_mute (tfs, g_value_get_boolean (value));
-      break;
-    case PROP_MAX_DURATION:
-      ges_timeline_filesource_set_max_duration (tfs,
-          g_value_get_uint64 (value));
-      break;
-    case PROP_SUPPORTED_FORMATS:
-      ges_timeline_filesource_set_supported_formats (tfs,
-          g_value_get_flags (value));
       break;
     case PROP_IS_IMAGE:
       ges_timeline_filesource_set_is_image (tfs, g_value_get_boolean (value));
@@ -151,20 +134,7 @@ ges_timeline_filesource_class_init (GESTimelineFileSourceClass * klass)
    */
   g_object_class_install_property (object_class, PROP_URI,
       g_param_spec_string ("uri", "URI", "uri of the resource",
-          NULL, G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY));
-
-  /**
-   * GESTimelineFileSource:max-duration:
-   *
-   * The maximum duration (in nanoseconds) of the file.
-   *
-   * If not set before adding the object to a layer, it will be discovered
-   * asynchronously. Connect to 'notify::max-duration' to be notified of it.
-   */
-  g_object_class_install_property (object_class, PROP_MAX_DURATION,
-      g_param_spec_uint64 ("max-duration", "Maximum duration",
-          "The duration of the file", 0, G_MAXUINT64, GST_CLOCK_TIME_NONE,
-          G_PARAM_READWRITE | G_PARAM_CONSTRUCT));
+          NULL, G_PARAM_READWRITE | G_PARAM_CONSTRUCT));
 
   /**
    * GESTimelineFileSource:mute:
@@ -174,16 +144,6 @@ ges_timeline_filesource_class_init (GESTimelineFileSourceClass * klass)
   g_object_class_install_property (object_class, PROP_MUTE,
       g_param_spec_boolean ("mute", "Mute", "Mute audio track",
           FALSE, G_PARAM_READWRITE | G_PARAM_CONSTRUCT));
-
-  /**
-   * GESTimelineFileSource:supported-formats:
-   *
-   * Whether the sound will be played or not.
-   */
-  g_object_class_install_property (object_class, PROP_SUPPORTED_FORMATS,
-      g_param_spec_flags ("supported-formats", "Supported formats",
-          "Formats supported by the file", GES_TYPE_TRACK_TYPE,
-          GES_TRACK_TYPE_UNKNOWN, G_PARAM_READWRITE | G_PARAM_CONSTRUCT));
 
   /**
    * GESTimelineFileSource:is-image:
@@ -198,6 +158,7 @@ ges_timeline_filesource_class_init (GESTimelineFileSourceClass * klass)
 
   timobj_class->create_track_object =
       ges_timeline_filesource_create_track_object;
+  timobj_class->set_max_duration = filesource_set_max_duration;
   timobj_class->need_fill_track = FALSE;
 }
 
@@ -254,14 +215,27 @@ void
 ges_timeline_filesource_set_max_duration (GESTimelineFileSource * self,
     guint64 maxduration)
 {
-  GESTimelineObject *object = GES_TIMELINE_OBJECT (self);
+  ges_timeline_object_set_max_duration (GES_TIMELINE_OBJECT (self),
+      maxduration);
+}
 
-  self->priv->maxduration = maxduration;
+void
+filesource_set_max_duration (GESTimelineObject * object, guint64 maxduration)
+{
+  GList *tmp, *tckobjs;
+
   if (object->duration == GST_CLOCK_TIME_NONE || object->duration == 0) {
     /* If we don't have a valid duration, use the max duration */
-    g_object_set (self, "duration", self->priv->maxduration - object->inpoint,
-        NULL);
+    g_object_set (object, "duration", maxduration - object->inpoint, NULL);
   }
+
+  tckobjs = ges_timeline_object_get_track_objects (object);
+  for (tmp = tckobjs; tmp; tmp = g_list_next (tmp)) {
+    ges_track_object_set_max_duration (GES_TRACK_OBJECT (tmp->data),
+        maxduration);
+  }
+
+  g_list_free_full (tckobjs, g_object_unref);
 }
 
 /**
@@ -276,13 +250,14 @@ void
 ges_timeline_filesource_set_supported_formats (GESTimelineFileSource * self,
     GESTrackType supportedformats)
 {
-  self->priv->supportedformats = supportedformats;
+  ges_timeline_object_set_supported_formats (GES_TIMELINE_OBJECT (self),
+      supportedformats);
 }
 
 /**
  * ges_timeline_filesource_set_is_image:
  * @self: the #GESTimelineFileSource 
- * @is_image: %TRUE if @self is a still image, %FALSE otherwize
+ * @is_image: %TRUE if @self is a still image, %FALSE otherwise
  *
  * Sets whether the timeline object is a still image or not.
  */
@@ -299,7 +274,7 @@ ges_timeline_filesource_set_is_image (GESTimelineFileSource * self,
  *
  * Lets you know if the audio track of @self is muted or not.
  *
- * Returns: %TRUE if the audio track of @self is muted, %FALSE otherwize.
+ * Returns: %TRUE if the audio track of @self is muted, %FALSE otherwise.
  */
 gboolean
 ges_timeline_filesource_is_muted (GESTimelineFileSource * self)
@@ -318,7 +293,7 @@ ges_timeline_filesource_is_muted (GESTimelineFileSource * self)
 guint64
 ges_timeline_filesource_get_max_duration (GESTimelineFileSource * self)
 {
-  return self->priv->maxduration;
+  return ges_timeline_object_get_max_duration (GES_TIMELINE_OBJECT (self));
 }
 
 /**
@@ -327,7 +302,7 @@ ges_timeline_filesource_get_max_duration (GESTimelineFileSource * self)
  *
  * Lets you know if @self is an image or not.
  *
- * Returns: %TRUE if @self is a still image %FALSE otherwize.
+ * Returns: %TRUE if @self is a still image %FALSE otherwise.
  */
 gboolean
 ges_timeline_filesource_is_image (GESTimelineFileSource * self)
@@ -339,9 +314,9 @@ ges_timeline_filesource_is_image (GESTimelineFileSource * self)
  * ges_timeline_filesource_get_uri:
  * @self: the #GESTimelineFileSource 
  *
- * Get the location of the ressource.
+ * Get the location of the resource.
  *
- * Returns: The location of the ressource.
+ * Returns: The location of the resource.
  */
 const gchar *
 ges_timeline_filesource_get_uri (GESTimelineFileSource * self)
@@ -360,7 +335,7 @@ ges_timeline_filesource_get_uri (GESTimelineFileSource * self)
 GESTrackType
 ges_timeline_filesource_get_supported_formats (GESTimelineFileSource * self)
 {
-  return self->priv->supportedformats;
+  return ges_timeline_object_get_supported_formats (GES_TIMELINE_OBJECT (self));
 }
 
 static GESTrackObject *
@@ -370,15 +345,15 @@ ges_timeline_filesource_create_track_object (GESTimelineObject * obj,
   GESTimelineFileSourcePrivate *priv = GES_TIMELINE_FILE_SOURCE (obj)->priv;
   GESTrackObject *res;
 
-  if (!(priv->supportedformats & track->type)) {
+  if (!(ges_timeline_object_get_supported_formats (obj) & track->type)) {
     GST_DEBUG ("We don't support this track format");
     return NULL;
   }
 
   if (priv->is_image) {
     if (track->type != GES_TRACK_TYPE_VIDEO) {
-      GST_DEBUG ("Object is still image, creating silent audio source");
-      res = (GESTrackObject *) ges_track_audio_test_source_new ();
+      GST_DEBUG ("Object is still image, not adding any audio source");
+      return NULL;
     } else {
       GST_DEBUG ("Creating a GESTrackImageSource");
       res = (GESTrackObject *) ges_track_image_source_new (priv->uri);
@@ -411,6 +386,27 @@ ges_timeline_filesource_create_track_object (GESTimelineObject * obj,
 GESTimelineFileSource *
 ges_timeline_filesource_new (gchar * uri)
 {
-  /* FIXME : Check for validity/existence of URI */
-  return g_object_new (GES_TYPE_TIMELINE_FILE_SOURCE, "uri", uri, NULL);
+  GESTimelineFileSource *res = NULL;
+
+  if (gst_uri_is_valid (uri))
+    res = g_object_new (GES_TYPE_TIMELINE_FILE_SOURCE, "uri", uri, NULL);
+
+  return res;
+}
+
+void
+ges_timeline_filesource_set_uri (GESTimelineFileSource * self, gchar * uri)
+{
+  GESTimelineObject *tlobj = GES_TIMELINE_OBJECT (self);
+  GList *tckobjs = ges_timeline_object_get_track_objects (tlobj);
+
+  if (tckobjs) {
+    /* FIXME handle this case properly */
+    GST_WARNING_OBJECT (tlobj, "Can not change uri when already"
+        "containing TrackObjects");
+
+    return;
+  }
+
+  self->priv->uri = uri;
 }

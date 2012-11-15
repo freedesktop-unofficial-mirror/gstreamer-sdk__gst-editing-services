@@ -20,6 +20,8 @@
 #include <ges/ges.h>
 #include <gst/check/gstcheck.h>
 #include <string.h>
+#include <unistd.h>
+#define GetCurrentDir getcwd
 
 #define KEY_FILE_START {\
   if (cmp) g_key_file_free (cmp);\
@@ -119,6 +121,8 @@ GST_START_TEST (test_keyfile_save)
   KEY ("Object0", "in-point", "0");
   KEY ("Object0", "duration", "2000000000");
   KEY ("Object0", "priority", "2");
+  KEY ("Object0", "supported-formats", "GES_TRACK_TYPE_UNKNOWN");
+  KEY ("Object0", "max-duration", "18446744073709551615");
   KEY ("Object0", "mute", "false");
   KEY ("Object0", "vpattern", "100% Black");
   KEY ("Object0", "freq", "440");
@@ -138,6 +142,8 @@ GST_START_TEST (test_keyfile_save)
   KEY ("Object1", "in-point", "0");
   KEY ("Object1", "duration", "500000000");
   KEY ("Object1", "priority", "1");
+  KEY ("Object1", "supported-formats", "GES_TRACK_TYPE_UNKNOWN");
+  KEY ("Object1", "max-duration", "18446744073709551615");
   KEY ("Object1", "vtype", "A bar moves from left to right");
   COMPARE;
 
@@ -152,6 +158,8 @@ GST_START_TEST (test_keyfile_save)
   KEY ("Object2", "in-point", "0");
   KEY ("Object2", "duration", "2000000000");
   KEY ("Object2", "priority", "3");
+  KEY ("Object2", "supported-formats", "GES_TRACK_TYPE_UNKNOWN");
+  KEY ("Object2", "max-duration", "18446744073709551615");
   KEY ("Object2", "mute", "false");
   KEY ("Object2", "vpattern", "100% Black");
   KEY ("Object2", "freq", "440");
@@ -181,13 +189,17 @@ GST_START_TEST (test_keyfile_save)
   KEY ("Object3", "start", "5000000000");
   KEY ("Object3", "in-point", "0");
   KEY ("Object3", "duration", "1000000000");
-  /* The second layer's minimum priority will be 10 */
-  KEY ("Object3", "priority", "10");
+  KEY ("Object3", "priority", "0");
+  KEY ("Object3", "supported-formats", "GES_TRACK_TYPE_UNKNOWN");
+  KEY ("Object3", "max-duration", "18446744073709551615");
   KEY ("Object3", "mute", "false");
   KEY ("Object3", "text", "\"the\\\\ quick\\\\ brown\\\\ fox\"");
   KEY ("Object3", "font-desc", "\"Serif\\\\ 36\"");
   KEY ("Object3", "halignment", "center");
   KEY ("Object3", "valignment", "baseline");
+  KEY ("Object3", "color", "4294967295");
+  KEY ("Object3", "xpos", "0.5");
+  KEY ("Object3", "ypos", "0.5");
   COMPARE;
 
   /* tear-down */
@@ -625,6 +637,53 @@ GST_START_TEST (test_keyfile_load)
 
 GST_END_TEST;
 
+GST_START_TEST (test_pitivi_file_load)
+{
+  GESFormatter *formatter;
+  GESTimeline *timeline, *expected;
+  GMainLoop *mainloop;
+  gchar *uri, *save_uri, *cur_dir;
+
+  /*create the expected timeline */
+  timeline = ges_timeline_new ();
+  mainloop = g_main_loop_new (NULL, FALSE);
+  expected = ges_timeline_new ();
+
+  /* create the timeline from formatter */
+  formatter = GES_FORMATTER (ges_pitivi_formatter_new ());
+  cur_dir = g_get_current_dir ();
+  uri = g_build_filename (cur_dir, "test.xptv", NULL);
+  save_uri = g_build_filename (cur_dir, "testsave.xptv", NULL);
+  g_free (cur_dir);
+
+  if (g_file_test (uri, G_FILE_TEST_EXISTS) == FALSE) {
+    GST_ERROR ("Could not test GESPitiviFormatter as no project file found");
+    return;
+  }
+
+  ges_formatter_load_from_uri (formatter, timeline, uri);
+  g_timeout_add (1000, (GSourceFunc) g_main_loop_quit, mainloop);
+  g_main_loop_run (mainloop);
+
+  formatter = GES_FORMATTER (ges_pitivi_formatter_new ());
+  ges_formatter_save_to_uri (formatter, timeline, save_uri);
+  formatter = GES_FORMATTER (ges_pitivi_formatter_new ());
+  ges_formatter_load_from_uri (formatter, expected, uri);
+  g_timeout_add (1000, (GSourceFunc) g_main_loop_quit, mainloop);
+  g_main_loop_run (mainloop);
+
+  /* compare the two timelines and fail test if they are different */
+  TIMELINE_COMPARE (expected, timeline);
+  g_free (uri);
+  g_free (save_uri);
+  g_main_loop_unref (mainloop);
+  g_object_unref (formatter);
+  g_object_unref (timeline);
+  g_object_unref (expected);
+}
+
+GST_END_TEST;
+
 GST_START_TEST (test_keyfile_identity)
 {
 
@@ -677,9 +736,11 @@ GST_START_TEST (test_keyfile_identity)
           "freq", (gdouble) 600,
           "volume", 1.0, "vpattern", GES_VIDEO_TEST_PATTERN_RED);
 
-    } LAYER_END;
+    }
+    LAYER_END;
 
-  } TIMELINE_END;
+  }
+  TIMELINE_END;
 
   serialized = ges_timeline_new ();
 
@@ -706,6 +767,7 @@ ges_suite (void)
   tcase_add_test (tc_chain, test_keyfile_save);
   tcase_add_test (tc_chain, test_keyfile_load);
   tcase_add_test (tc_chain, test_keyfile_identity);
+  tcase_add_test (tc_chain, test_pitivi_file_load);
 
   return s;
 }

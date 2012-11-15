@@ -193,6 +193,7 @@ create_track (GKeyFile * kf, gchar * group, GESTimeline * timeline)
   GESTrack *track;
   GstCaps *caps;
   gchar *caps_field, *type_field;
+  gboolean res;
   GValue v = { 0 };
 
   if (!(caps_field = g_key_file_get_string (kf, group, "caps", NULL)))
@@ -205,10 +206,10 @@ create_track (GKeyFile * kf, gchar * group, GESTimeline * timeline)
     return FALSE;
 
   g_value_init (&v, GES_TYPE_TRACK_TYPE);
-  gst_value_deserialize (&v, type_field);
+  res = gst_value_deserialize (&v, type_field);
   g_free (type_field);
 
-  if (!caps)
+  if (!caps || !res)
     return FALSE;
 
   track = ges_track_new (g_value_get_flags (&v), caps);
@@ -302,7 +303,7 @@ create_object (GKeyFile * kf, gchar * group, GESTimelineLayer * layer)
     goto fail_free_keys;
   }
 
-  GST_DEBUG ("processing parameter list", group);
+  GST_DEBUG ("processing parameter list '%s'", group);
 
   for (p = params, i = 1; i < n_keys; i++, p++) {
     gchar *value;
@@ -401,8 +402,8 @@ load_keyfile (GESFormatter * keyfile_formatter, GESTimeline * timeline)
   data = ges_formatter_get_data (keyfile_formatter, &length);
   if (!g_key_file_load_from_data (kf, data, length, G_KEY_FILE_NONE, &error)) {
     ret = FALSE;
-    GST_ERROR (error->message);
-    GST_INFO (data);
+    GST_ERROR ("%s", error->message);
+    GST_INFO ("%s", data);
     goto free_kf;
   }
 

@@ -95,14 +95,28 @@ GESTimelineLayer* ges_timeline_layer_new (void);
 
 void     ges_timeline_layer_set_timeline  (GESTimelineLayer * layer,
 					   GESTimeline * timeline);
+
+GESTimeline *
+ges_timeline_layer_get_timeline           (GESTimelineLayer * layer);
+
 gboolean ges_timeline_layer_add_object    (GESTimelineLayer * layer,
+
 					   GESTimelineObject * object);
 gboolean ges_timeline_layer_remove_object (GESTimelineLayer * layer,
 					   GESTimelineObject * object);
 
 void     ges_timeline_layer_set_priority  (GESTimelineLayer * layer,
 					   guint priority);
-guint    ges_timeline_layer_get_priority  (GESTimelineLayer * layer);
+
+gboolean ges_timeline_layer_is_empty      (GESTimelineLayer * layer);
+
+guint   ges_timeline_layer_get_priority  (GESTimelineLayer * layer);
+
+gboolean ges_timeline_layer_get_auto_transition (GESTimelineLayer * layer);
+
+void ges_timeline_layer_set_auto_transition (GESTimelineLayer * layer,
+					     gboolean auto_transition);
+
 GList*   ges_timeline_layer_get_objects   (GESTimelineLayer * layer);
 
 G_END_DECLS

@@ -1,6 +1,6 @@
 DISTCHECK_CONFIGURE_FLAGS=--enable-gtk-doc
 
-SUBDIRS = ges tests tools common m4 pkgconfig docs
+SUBDIRS = ges tests tools common m4 pkgconfig docs bindings
 
 DIST_SUBDIRS = $(SUBDIRS)
 
@@ -18,6 +18,8 @@ ACLOCAL_AMFLAGS = -I m4 -I common/m4
 
 include $(top_srcdir)/common/release.mak
 include $(top_srcdir)/common/po.mak
+
+include $(top_srcdir)/common/coverage/lcov.mak
 
 check-valgrind:
 	cd tests/check && make check-valgrind

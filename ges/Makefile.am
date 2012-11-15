@@ -3,7 +3,7 @@ built_source_make = gesmarshal.c
 
 lib_LTLIBRARIES = libges-@GST_MAJORMINOR@.la
 
-EXTRA_libges_@GST_MAJORMINOR@_la_SOURCES = gesmarshal.list 
+EXTRA_libges_@GST_MAJORMINOR@_la_SOURCES = gesmarshal.list
 
 CLEANFILES = $(BUILT_SOURCES) $(built_header_make) $(built_source_make)
 
@@ -18,6 +18,8 @@ libges_@GST_MAJORMINOR@_la_SOURCES = 		\
 	ges-timeline-object.c			\
 	ges-timeline-pipeline.c			\
 	ges-timeline-source.c			\
+	ges-timeline-effect.c		\
+	ges-timeline-parse-launch-effect.c		\
 	ges-timeline-file-source.c		\
 	ges-timeline-operation.c		\
 	ges-timeline-transition.c		\
@@ -39,9 +41,12 @@ libges_@GST_MAJORMINOR@_la_SOURCES = 		\
 	ges-track-audio-test-source.c		\
 	ges-track-title-source.c		\
 	ges-track-text-overlay.c		\
+	ges-track-effect.c		\
+	ges-track-parse-launch-effect.c		\
 	ges-screenshot.c			\
 	ges-formatter.c				\
 	ges-keyfile-formatter.c			\
+	ges-pitivi-formatter.c			\
 	ges-utils.c
 
 libges_@GST_MAJORMINOR@includedir = $(includedir)/gstreamer-@GST_MAJORMINOR@/ges/
@@ -58,6 +63,8 @@ libges_@GST_MAJORMINOR@include_HEADERS = 	\
 	ges-timeline-pipeline.h			\
 	ges-timeline-source.h			\
 	ges-timeline-file-source.h		\
+	ges-timeline-effect.h		\
+	ges-timeline-parse-launch-effect.h		\
 	ges-timeline-operation.h		\
 	ges-timeline-transition.h		\
 	ges-timeline-standard-transition.h	\
@@ -65,6 +72,8 @@ libges_@GST_MAJORMINOR@include_HEADERS = 	\
 	ges-timeline-title-source.h		\
 	ges-timeline-overlay.h			\
 	ges-timeline-text-overlay.h		\
+	ges-track-effect.h		\
+	ges-track-parse-launch-effect.h		\
 	ges-track.h				\
 	ges-track-object.h			\
 	ges-track-source.h			\
@@ -81,14 +90,20 @@ libges_@GST_MAJORMINOR@include_HEADERS = 	\
 	ges-screenshot.h			\
 	ges-formatter.h				\
 	ges-keyfile-formatter.h			\
+	ges-pitivi-formatter.h			\
 	ges-utils.h
 
 noinst_HEADERS = \
 	ges-internal.h
 
-libges_@GST_MAJORMINOR@_la_CFLAGS = -I$(top_srcdir) $(GST_PBUTILS_CFLAGS) $(GST_VIDEO_CFLAGS) $(GST_CONTROLLER_CFLAGS) $(GST_PLUGINS_BASE_CFLAGS) $(GST_CFLAGS)
-libges_@GST_MAJORMINOR@_la_LIBADD = $(GST_PBUTILS_LIBS) $(GST_VIDEO_LIBS) $(GST_CONTROLLER_LIBS) $(GST_PLUGINS_BASE_LIBS) $(GST_BASE_LIBS) $(GST_LIBS) 
-libges_@GST_MAJORMINOR@_la_LDFLAGS = $(GST_LIB_LDFLAGS) $(GST_ALL_LDFLAGS) $(GST_LT_LDFLAGS) -export-symbols-regex \^_*\(ges_\|GES_\).*
+libges_@GST_MAJORMINOR@_la_CFLAGS = -I$(top_srcdir) $(GST_PBUTILS_CFLAGS) \
+		$(GST_VIDEO_CFLAGS) $(GST_CONTROLLER_CFLAGS) $(GST_PLUGINS_BASE_CFLAGS) \
+		$(GST_CFLAGS) $(XML_CFLAGS) $(GIO_CFLAGS)
+libges_@GST_MAJORMINOR@_la_LIBADD = $(GST_PBUTILS_LIBS) \
+		$(GST_VIDEO_LIBS) $(GST_CONTROLLER_LIBS) $(GST_PLUGINS_BASE_LIBS) \
+		$(GST_BASE_LIBS) $(GST_LIBS) $(XML_LIBS) $(GIO_LIBS)
+libges_@GST_MAJORMINOR@_la_LDFLAGS = $(GST_LIB_LDFLAGS) $(GST_ALL_LDFLAGS) \
+		$(GST_LT_LDFLAGS) $(GIO_CFLAGS) -export-symbols-regex \^_*\(ges_\|GES_\).*
 
 DISTCLEANFILE = $(CLEANFILES)
 
@@ -130,13 +145,16 @@ GES-@GST_MAJORMINOR@.gir: $(INTROSPECTION_SCANNER) libges-@GST_MAJORMINOR@.la
 		-I$(top_builddir) \
 		--add-include-path=`$(PKG_CONFIG) --variable=girdir gstreamer-0.10` \
 		--add-include-path=`$(PKG_CONFIG) --variable=girdir gstreamer-pbutils-0.10` \
+		--add-include-path=`$(PKG_CONFIG) --variable=girdir gio-2.0` \
 		--library=libges-@GST_MAJORMINOR@.la \
 		--include=Gst-@GST_MAJORMINOR@ \
 		--include=GstPbutils-@GST_MAJORMINOR@ \
 		--libtool="$(top_builddir)/libtool" \
 		--pkg gstreamer-@GST_MAJORMINOR@ \
 		--pkg gstreamer-pbutils-@GST_MAJORMINOR@ \
+		--pkg gio-2.0 \
 		--pkg-export ges-@GST_MAJORMINOR@ \
+		--add-init-section="ges_init(NULL, NULL);" \
 		--output $@ \
 		$(gir_headers) \
 		$(gir_sources)
@@ -158,7 +176,24 @@ typelibs_DATA = $(BUILT_GIRSOURCES:.gir=.typelib)
 		--includedir=$(builddir) \
 		--includedir=`$(PKG_CONFIG) --variable=girdir gstreamer-0.10` \
 		--includedir=`$(PKG_CONFIG) --variable=girdir gstreamer-pbutils-0.10` \
+		--includedir=`$(PKG_CONFIG) --variable=girdir gio-2.0` \
 		$(INTROSPECTION_COMPILER_OPTS) $< -o $(@F)
 
 CLEANFILES += $(BUILT_GIRSOURCES) $(typelibs_DATA)
 endif
+
+Android.mk: Makefile.am $(BUILT_SOURCES)
+	androgenizer -:PROJECT libges -:SHARED libges-@GST_MAJORMINOR@ \
+	 -:TAGS eng debug \
+         -:REL_TOP $(top_srcdir) -:ABS_TOP $(abs_top_srcdir) \
+	 -:SOURCES $(libges_@GST_MAJORMINOR@_la_SOURCES) \
+	           $(nodist_libges_@GST_MAJORMINOR@_la_SOURCES) \
+	 -:CFLAGS $(DEFS) $(libges_@GST_MAJORMINOR@_la_CFLAGS) \
+	 -:LDFLAGS $(libges_@GST_MAJORMINOR@_la_LDFLAGS) \
+	           $(libges_@GST_MAJORMINOR@_la_LIBADD) \
+	           -ldl \
+	 -:HEADER_TARGET gstreamer-@GST_MAJORMINOR@/gst/interfaces \
+	 -:HEADERS $(libges_@GST_MAJORMINOR@include_HEADERS) \
+	           $(nodist_libges_@GST_MAJORMINOR@include_HEADERS) \
+	 -:PASSTHROUGH LOCAL_ARM_MODE:=arm \
+	> $@

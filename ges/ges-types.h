@@ -50,6 +50,9 @@ typedef struct _GESTimelinePipelineClass GESTimelinePipelineClass;
 typedef struct _GESTimelineSource GESTimelineSource;
 typedef struct _GESTimelineSourceClass GESTimelineSourceClass;
 
+typedef struct _GESTimelineEffect GESTimelineEffect;
+typedef struct _GESTimelineEffectClass GESTimelineEffectClass;
+
 typedef struct _GESTimelineFileSource GESTimelineFileSource;
 typedef struct _GESTimelineFileSourceClass GESTimelineFileSourceClass;
 
@@ -71,6 +74,9 @@ typedef struct _GESTimelineOverlayClass GESTimelineOverlayClass;
 typedef struct _GESTimelineTextOverlay GESTimelineTextOverlay;
 typedef struct _GESTimelineTextOverlayClass GESTimelineTextOverlayClass;
 
+typedef struct _GESTimelineParseLaunchEffect GESTimelineParseLaunchEffect;
+typedef struct _GESTimelineParseLaunchEffectClass GESTimelineParseLaunchEffectClass;
+
 typedef struct _GESTrack GESTrack;
 typedef struct _GESTrackClass GESTrackClass;
 
@@ -82,6 +88,12 @@ typedef struct _GESTrackSourceClass GESTrackSourceClass;
 
 typedef struct _GESTrackOperation GESTrackOperation;
 typedef struct _GESTrackOperationClass GESTrackOperationClass;
+
+typedef struct _GESTrackEffect GESTrackEffect;
+typedef struct _GESTrackEffectClass GESTrackEffectClass;
+
+typedef struct _GESTrackParseLaunchEffect GESTrackParseLaunchEffect;
+typedef struct _GESTrackParseLaunchEffectClass GESTrackParseLaunchEffectClass;
 
 typedef struct _GESTrackFileSource GESTrackFileSource;
 typedef struct _GESTrackFileSourceClass GESTrackFileSourceClass;
@@ -122,5 +134,7 @@ typedef struct _GESFormatterClass GESFormatterClass;
 typedef struct _GESKeyfileFormatter GESKeyfileFormatter;
 typedef struct _GESKeyfileFormatterClass GESKeyfileFormatterClass;
 
+typedef struct _GESPitiviFormatter GESPitiviFormatter;
+typedef struct _GESPitiviFormatterClass GESPitiviFormatterClass;
 
 #endif /* __GES_TYPES_H__ */

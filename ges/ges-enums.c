@@ -18,6 +18,11 @@
  * Boston, MA 02111-1307, USA.
  */
 
+/**
+ * SECTION:ges-enums
+ * @short_description: Various enums for the Gstreamer Editing Services
+ */
+
 #include "ges-enums.h"
 
 #define C_ENUM(v) ((guint) v)
@@ -43,6 +48,92 @@ ges_track_type_get_type (void)
   static GOnce once = G_ONCE_INIT;
 
   g_once (&once, (GThreadFunc) register_ges_track_type_select_result, &id);
+  return id;
+}
+
+static void
+register_ges_pipeline_flags (GType * id)
+{
+  static const GFlagsValue values[] = {
+    {C_ENUM (TIMELINE_MODE_PREVIEW_AUDIO), "TIMELINE_MODE_PREVIEW_AUDIO",
+        "audio_preview"},
+    {C_ENUM (TIMELINE_MODE_PREVIEW_VIDEO), "TIMELINE_MODE_PREVIEW_VIDEO",
+        "video_preview"},
+    {C_ENUM (TIMELINE_MODE_PREVIEW), "TIMELINE_MODE_PREVIEW", "full_preview"},
+    {C_ENUM (TIMELINE_MODE_RENDER), "TIMELINE_MODE_RENDER", "render"},
+    {C_ENUM (TIMELINE_MODE_SMART_RENDER), "TIMELINE_MODE_SMART_RENDER",
+        "smart_render"},
+    {0, NULL, NULL}
+  };
+
+  *id = g_flags_register_static ("GESPipelineFlags", values);
+}
+
+GType
+ges_pipeline_flags_get_type (void)
+{
+  static GType id;
+  static GOnce once = G_ONCE_INIT;
+
+  g_once (&once, (GThreadFunc) register_ges_pipeline_flags, &id);
+  return id;
+}
+
+static void
+register_ges_edit_mode (GType * id)
+{
+  static const GEnumValue edit_mode[] = {
+    {C_ENUM (GES_EDIT_MODE_NORMAL), "GES_EDIT_MODE_NORMAL",
+        "edit_normal"},
+
+    {C_ENUM (GES_EDIT_MODE_RIPPLE), "GES_EDIT_MODE_RIPPLE",
+        "edit_ripple"},
+
+    {C_ENUM (GES_EDIT_MODE_ROLL), "GES_EDIT_MODE_ROLL",
+        "edit_roll"},
+
+    {C_ENUM (GES_EDIT_MODE_TRIM), "GES_EDIT_MODE_TRIM",
+        "edit_trim"},
+
+    {C_ENUM (GES_EDIT_MODE_SLIDE), "GES_EDIT_MODE_SLIDE",
+        "edit_slide"},
+
+    {0, NULL, NULL}
+  };
+
+  *id = g_enum_register_static ("GESEditMode", edit_mode);
+}
+
+GType
+ges_edit_mode_get_type (void)
+{
+  static GType id;
+  static GOnce once = G_ONCE_INIT;
+
+  g_once (&once, (GThreadFunc) register_ges_edit_mode, &id);
+  return id;
+}
+
+static void
+register_ges_edge (GType * id)
+{
+  static const GEnumValue edges[] = {
+    {C_ENUM (GES_EDGE_START), "GES_EDGE_START", "edge_start"},
+    {C_ENUM (GES_EDGE_END), "GES_EDGE_END", "edge_end"},
+    {C_ENUM (GES_EDGE_NONE), "GES_EDGE_NONE", "edge_none"},
+    {0, NULL, NULL}
+  };
+
+  *id = g_enum_register_static ("GESEdge", edges);
+}
+
+GType
+ges_edge_get_type (void)
+{
+  static GType id;
+  static GOnce once = G_ONCE_INIT;
+
+  g_once (&once, (GThreadFunc) register_ges_edge, &id);
   return id;
 }
 
@@ -436,6 +527,8 @@ ges_text_valign_get_type (void)
     {GES_TEXT_VALIGN_BASELINE, "baseline", "baseline"},
     {GES_TEXT_VALIGN_BOTTOM, "bottom", "bottom"},
     {GES_TEXT_VALIGN_TOP, "top", "top"},
+    {GES_TEXT_VALIGN_POSITION, "position", "position"},
+    {GES_TEXT_VALIGN_CENTER, "center", "center"},
     {0, NULL, NULL},
   };
 
@@ -456,6 +549,7 @@ ges_text_halign_get_type (void)
     {GES_TEXT_HALIGN_LEFT, "left", "left"},
     {GES_TEXT_HALIGN_CENTER, "center", "center"},
     {GES_TEXT_HALIGN_RIGHT, "right", "right"},
+    {GES_TEXT_HALIGN_POSITION, "position", "position"},
     {0, NULL, NULL},
   };
 

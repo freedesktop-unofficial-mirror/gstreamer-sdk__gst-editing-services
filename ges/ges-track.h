@@ -48,6 +48,18 @@ G_BEGIN_DECLS
 typedef struct _GESTrackPrivate GESTrackPrivate;
 
 /**
+ * GESCreateElementForGapFunc:
+ * @track: the #GESTrack
+ *
+ * A function that will be called to create the #GstElement that will be used
+ * as a source to fill the gaps in @track.
+ *
+ * Returns: A #GstElement (must be a source) that will be used to
+ * fill the gaps (periods of time in @track that containes no source).
+ */
+typedef GstElement* (*GESCreateElementForGapFunc) (GESTrack *track);
+
+/**
  * GESTrack:
  * @type: a #GESTrackType indicting the basic type of the track.
  *
@@ -79,24 +91,37 @@ struct _GESTrackClass {
   gpointer _ges_reserved[GES_PADDING];
 };
 
-GType ges_track_get_type (void);
+GType ges_track_get_type                  (void);
 
-GESTrack* ges_track_new (GESTrackType type, GstCaps * caps);
+GESTrack* ges_track_new                   (GESTrackType type, GstCaps * caps);
 
-void		ges_track_set_timeline (GESTrack * track,
-					GESTimeline *timeline);
-void		ges_track_set_caps     (GESTrack * track,
-					const GstCaps * caps);
-const GstCaps * ges_track_get_caps     (GESTrack *track);
+void    ges_track_set_timeline            (GESTrack * track,
+                                           GESTimeline *timeline);
+
+void    ges_track_set_caps                (GESTrack * track,
+                                           const GstCaps * caps);
+
+const GstCaps * ges_track_get_caps        (GESTrack *track);
+
 const GESTimeline *ges_track_get_timeline (GESTrack *track);
 
-gboolean ges_track_add_object    (GESTrack * track,
-				  GESTrackObject * object);
-gboolean ges_track_remove_object (GESTrack * track,
-				  GESTrackObject * object);
+gboolean ges_track_add_object             (GESTrack * track,
+                                           GESTrackObject * object);
 
-GESTrack *ges_track_video_raw_new (void);
-GESTrack *ges_track_audio_raw_new (void);
+gboolean ges_track_remove_object          (GESTrack * track,
+                                           GESTrackObject * object);
+
+GESTrack *ges_track_video_raw_new         (void);
+GESTrack *ges_track_audio_raw_new         (void);
+
+gboolean ges_track_enable_update          (GESTrack * track, gboolean enabled);
+gboolean ges_track_is_updating            (GESTrack * track);
+
+GList* ges_track_get_objects              (GESTrack *track);
+
+void
+ges_track_set_create_element_for_gap_func (GESTrack *track,
+                                           GESCreateElementForGapFunc func);
 
 G_END_DECLS
 
